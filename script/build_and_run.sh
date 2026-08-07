@@ -2,14 +2,14 @@
 set -euo pipefail
 
 MODE="${1:-run}"
-APP_NAME="my-first-macos-app"
-BUNDLE_ID="com.perryfinn.my-first-macos-app"
+APP_NAME="random-thoughts"
+BUNDLE_ID="com.perryfinn.random-thoughts"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DERIVED_DATA_DIR="$ROOT_DIR/.build/DerivedData"
 APP_BUNDLE="$DERIVED_DATA_DIR/Build/Products/Debug/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
-PROJECT_PATH="$ROOT_DIR/my-first-macos-app.xcodeproj"
+PROJECT_PATH="$ROOT_DIR/random-thoughts.xcodeproj"
 
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
@@ -21,7 +21,6 @@ xcodebuild \
   -configuration Debug \
   -destination "platform=macOS" \
   -derivedDataPath "$DERIVED_DATA_DIR" \
-  CODE_SIGNING_ALLOWED=NO \
   build
 
 open_app() {
@@ -37,7 +36,7 @@ case "$MODE" in
     open_app
     ;;
   --debug|debug)
-    lldb -- "$APP_BINARY"
+    exec xcrun lldb -o run -- "$APP_BINARY"
     ;;
   --logs|logs)
     open_app

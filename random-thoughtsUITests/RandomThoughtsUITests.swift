@@ -1,13 +1,13 @@
 //
-//  my_first_macos_appUITests.swift
-//  my-first-macos-appUITests
+//  RandomThoughtsUITests.swift
+//  random-thoughtsUITests
 //
 //  Created by 陈鹏飞 on 2026/7/26.
 //
 
 import XCTest
 
-final class my_first_macos_appUITests: XCTestCase {
+final class RandomThoughtsUITests: XCTestCase {
 
     override func setUpWithError() throws {
         // Put setup code here. This method is called before the invocation of each test method in the class.

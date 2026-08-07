@@ -3,7 +3,7 @@ import OSLog
 
 enum AppTelemetry {
     private static let subsystem =
-        Bundle.main.bundleIdentifier ?? "com.perryfinn.my-first-macos-app"
+        Bundle.main.bundleIdentifier ?? "com.perryfinn.random-thoughts"
 
     static let windowing = Logger(subsystem: subsystem, category: "Windowing")
     static let menuBar = Logger(subsystem: subsystem, category: "MenuBar")

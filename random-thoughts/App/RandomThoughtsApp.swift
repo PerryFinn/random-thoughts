@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct IQRadarApp: App {
+struct RandomThoughtsApp: App {
     @State private var store: IntelligenceStore
 
     init() {
@@ -15,7 +15,7 @@ struct IQRadarApp: App {
             MenuBarPanel(store: store)
         } label: {
             Image(systemName: "brain.head.profile")
-                .accessibilityLabel("IQ Radar")
+                .accessibilityLabel("随想")
         }
         .menuBarExtraStyle(.window)
 

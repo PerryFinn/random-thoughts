@@ -53,7 +53,7 @@ struct MenuBarPanel: View {
                         endPoint: .bottomTrailing
                     )
                 )
-            Text("IQ Radar")
+            Text("随想")
                 .font(.headline)
 
             Spacer()

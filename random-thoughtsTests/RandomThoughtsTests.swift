@@ -1,6 +1,6 @@
 //
-//  my_first_macos_appTests.swift
-//  my-first-macos-appTests
+//  RandomThoughtsTests.swift
+//  random-thoughtsTests
 //
 //  Created by 陈鹏飞 on 2026/7/26.
 //
@@ -9,9 +9,9 @@ import AppKit
 import Foundation
 import SwiftUI
 import Testing
-@testable import my_first_macos_app
+@testable import random_thoughts
 
-struct my_first_macos_appTests {
+struct RandomThoughtsTests {
 
     @Test @MainActor func decodesCodexRadarPoint() throws {
         let response = try JSONDecoder().decode(IntelligenceResponse.self, from: Self.sampleResponseData)
@@ -27,7 +27,7 @@ struct my_first_macos_appTests {
     }
 
     @Test @MainActor func menuBarPanelReservesRoomForSelectedCard() throws {
-        let suiteName = "com.perryfinn.my-first-macos-app.layout-tests"
+        let suiteName = "com.perryfinn.random-thoughts.layout-tests"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -43,7 +43,7 @@ struct my_first_macos_appTests {
     }
 
     @Test @MainActor func limitsTrackedPointsToConfiguredMaximum() throws {
-        let suiteName = "com.perryfinn.my-first-macos-app.selection-limit-tests"
+        let suiteName = "com.perryfinn.random-thoughts.selection-limit-tests"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }

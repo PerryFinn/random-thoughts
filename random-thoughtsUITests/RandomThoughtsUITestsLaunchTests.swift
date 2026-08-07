@@ -1,13 +1,13 @@
 //
-//  my_first_macos_appUITestsLaunchTests.swift
-//  my-first-macos-appUITests
+//  RandomThoughtsUITestsLaunchTests.swift
+//  random-thoughtsUITests
 //
 //  Created by 陈鹏飞 on 2026/7/26.
 //
 
 import XCTest
 
-final class my_first_macos_appUITestsLaunchTests: XCTestCase {
+final class RandomThoughtsUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true
