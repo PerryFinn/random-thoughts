@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 
 @MainActor
 @Observable
@@ -97,6 +98,10 @@ final class IntelligenceStore {
     func startUpdating() {
         guard refreshTask == nil else { return }
 
+        AppTelemetry.refresh.info(
+            "Automatic refresh started; intervalSeconds=\(Int(Self.refreshInterval), privacy: .public)"
+        )
+
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
@@ -112,8 +117,13 @@ final class IntelligenceStore {
     }
 
     func refresh() async {
-        guard !isRefreshing else { return }
+        guard !isRefreshing else {
+            AppTelemetry.refresh.debug("Refresh skipped because one is already active")
+            return
+        }
+
         isRefreshing = true
+        AppTelemetry.refresh.debug("Refresh started")
         defer { isRefreshing = false }
 
         do {
@@ -126,8 +136,14 @@ final class IntelligenceStore {
                 defaults.set(encoded, forKey: Keys.cachedResponse)
             }
             defaults.set(lastRefreshAt, forKey: Keys.lastRefreshAt)
+            AppTelemetry.refresh.info(
+                "Refresh succeeded; pointCount=\(self.points.count, privacy: .public)"
+            )
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            AppTelemetry.refresh.error(
+                "Refresh failed; cachedPointCount=\(self.points.count, privacy: .public)"
+            )
         }
     }
 

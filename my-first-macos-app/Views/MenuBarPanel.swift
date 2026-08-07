@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import SwiftUI
 
 struct MenuBarPanel: View {
@@ -37,6 +38,7 @@ struct MenuBarPanel: View {
         .padding(14)
         .frame(width: 568)
         .task {
+            AppTelemetry.menuBar.debug("Menu bar panel presented")
             store.startUpdating()
         }
     }
@@ -120,6 +122,7 @@ struct MenuBarPanel: View {
                 Spacer()
 
                 Button {
+                    AppTelemetry.menuBar.info("Settings command selected")
                     openSettings()
                     SettingsWindowPresenter.bringToFront()
                 } label: {
@@ -128,6 +131,7 @@ struct MenuBarPanel: View {
                 .buttonStyle(.borderless)
 
                 Button {
+                    AppTelemetry.menuBar.info("Quit command selected")
                     NSApplication.shared.terminate(nil)
                 } label: {
                     Label("退出", systemImage: "power")

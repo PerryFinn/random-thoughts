@@ -1,11 +1,24 @@
 import AppKit
+import OSLog
 
 @MainActor
 enum SettingsWindowPresenter {
+    private static var isFocusAttemptActive = false
+
     static func bringToFront() {
         NSApplication.shared.activate(ignoringOtherApps: true)
 
+        guard !isFocusAttemptActive else {
+            AppTelemetry.windowing.debug("Coalesced settings focus request")
+            return
+        }
+
+        isFocusAttemptActive = true
+        AppTelemetry.windowing.info("Settings focus requested")
+
         Task { @MainActor in
+            defer { isFocusAttemptActive = false }
+
             for delay in [0, 50, 150] {
                 if delay > 0 {
                     try? await Task.sleep(for: .milliseconds(delay))
@@ -13,9 +26,12 @@ enum SettingsWindowPresenter {
 
                 NSApplication.shared.activate(ignoringOtherApps: true)
                 if focusSettingsWindow() {
+                    AppTelemetry.windowing.info("Settings window focused")
                     return
                 }
             }
+
+            AppTelemetry.windowing.error("Settings window unavailable after focus retries")
         }
     }
 
