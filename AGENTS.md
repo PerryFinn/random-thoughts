@@ -1,5 +1,19 @@
 # 仓库指南
 
+## Agent skills
+
+### Issue tracker
+
+本仓库的 issue 和 spec 存放在 GitHub Issues 中，使用 `gh` CLI 管理。详见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+使用默认的五个 triage 标签：`needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human` 和 `wontfix`。详见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+采用单上下文布局：根目录 `CONTEXT.md` 加 `docs/adr/`。详见 `docs/agents/domain.md`。
+
 ## 项目结构与模块组织
 
 `random-thoughts/` 包含 SwiftUI 菜单栏应用。代码按职责划分：`App/` 存放应用入口，`Models/` 定义解码数据，`Services/` 负责网络访问，`Stores/` 管理可观察状态，`Views/` 包含界面组件，`Support/` 提供 AppKit 桥接和遥测支持。图片与颜色应添加到 `Assets.xcassets`，应用元数据位于 `Config/Info.plist`。单元测试存放在 `random-thoughtsTests/`，启动与交互测试存放在 `random-thoughtsUITests/`。`.build/` 和 `DerivedData/` 均为生成目录，不应提交。
