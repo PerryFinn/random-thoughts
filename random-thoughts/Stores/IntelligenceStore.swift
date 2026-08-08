@@ -11,6 +11,7 @@ final class IntelligenceStore {
     private(set) var points: [IntelligencePoint] = []
     private(set) var selectedPointIDs: Set<String> = []
     private(set) var sourceUpdatedAt: Date?
+    private(set) var history: [IntelligenceHistorySnapshot] = []
     private(set) var lastRefreshAt: Date?
     private(set) var isRefreshing = false
     private(set) var errorMessage: String?
@@ -61,6 +62,78 @@ final class IntelligenceStore {
         return points.compactMap { point in
             seen.insert(point.model).inserted ? point.model : nil
         }
+    }
+
+    func iqChange24Hours(for point: IntelligencePoint) -> Double? {
+        guard let sourceUpdatedAt else { return nil }
+        let targetDate = sourceUpdatedAt.addingTimeInterval(-Self.trendInterval)
+
+        let closestSnapshot = history.compactMap { snapshot -> (Date, IntelligenceHistoryPoint)? in
+            guard let date = Self.parseISO8601(snapshot.at),
+                  let historicalPoint = snapshot.points.first(where: {
+                      $0.model == point.model && $0.effort == point.effort
+                  }) else {
+                return nil
+            }
+
+            return (date, historicalPoint)
+        }
+        .min { lhs, rhs in
+            abs(lhs.0.timeIntervalSince(targetDate)) < abs(rhs.0.timeIntervalSince(targetDate))
+        }
+
+        guard let closestSnapshot,
+              abs(closestSnapshot.0.timeIntervalSince(targetDate)) <= Self.trendTolerance else {
+            return nil
+        }
+
+        return point.iq - closestSnapshot.1.iq
+    }
+
+    func comparisonWithNextLowerEffort(
+        for point: IntelligencePoint
+    ) -> IntelligencePointComparison? {
+        guard let currentRank = Self.effortRanks[point.effort.lowercased()] else { return nil }
+
+        let baseline = points
+            .filter { candidate in
+                guard candidate.model == point.model,
+                      let candidateRank = Self.effortRanks[candidate.effort.lowercased()] else {
+                    return false
+                }
+                return candidateRank < currentRank
+            }
+            .max { lhs, rhs in
+                let lhsRank = Self.effortRanks[lhs.effort.lowercased()] ?? -1
+                let rhsRank = Self.effortRanks[rhs.effort.lowercased()] ?? -1
+                return lhsRank < rhsRank
+            }
+
+        guard let baseline else { return nil }
+
+        return IntelligencePointComparison(
+            baselineEffort: baseline.effort,
+            iqDelta: point.iq - baseline.iq,
+            priceDeltaUSD: Self.difference(point.averagePriceUSD, baseline.averagePriceUSD),
+            minutesDelta: Self.difference(point.averageMinutes, baseline.averageMinutes)
+        )
+    }
+
+    func confidenceWarning(for point: IntelligencePoint) -> IntelligenceConfidenceWarning? {
+        let sampleCounts = [point.validTasks, point.priceSamples, point.durationSamples]
+            .compactMap { $0 }
+
+        if let minimumSampleCount = sampleCounts.min(),
+           minimumSampleCount < Self.minimumReliableSampleCount {
+            return .lowSample(minimumSampleCount)
+        }
+
+        if let incompleteCostSamples = point.incompleteCostSamples,
+           incompleteCostSamples > 0 {
+            return .incompleteCost(incompleteCostSamples)
+        }
+
+        return nil
     }
 
     func points(for model: String) -> [IntelligencePoint] {
@@ -150,6 +223,7 @@ final class IntelligenceStore {
     private func apply(_ response: IntelligenceResponse) {
         points = response.points
         sourceUpdatedAt = response.sourceUpdatedAt.flatMap(ISO8601DateFormatter().date(from:))
+        history = response.history ?? []
         reconcileSavedSelection()
 
         guard !hasSavedSelection, !points.isEmpty else { return }
@@ -181,5 +255,23 @@ final class IntelligenceStore {
     private func saveSelection() {
         hasSavedSelection = true
         defaults.set(Array(selectedPointIDs).sorted(), forKey: Keys.selectedPointIDs)
+    }
+
+    private static let trendInterval: TimeInterval = 24 * 60 * 60
+    private static let trendTolerance: TimeInterval = 6 * 60 * 60
+    private static let minimumReliableSampleCount = 30
+    private static let effortRanks = Dictionary(
+        uniqueKeysWithValues: ["low", "medium", "high", "xhigh", "max", "ultra"]
+            .enumerated()
+            .map { ($0.element, $0.offset) }
+    )
+
+    private static func parseISO8601(_ value: String) -> Date? {
+        ISO8601DateFormatter().date(from: value)
+    }
+
+    private static func difference(_ lhs: Double?, _ rhs: Double?) -> Double? {
+        guard let lhs, let rhs else { return nil }
+        return lhs - rhs
     }
 }

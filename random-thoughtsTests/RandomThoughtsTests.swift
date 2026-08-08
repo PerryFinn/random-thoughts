@@ -24,6 +24,57 @@ struct RandomThoughtsTests {
         #expect(point.averagePriceUSD == 8.980278)
         #expect(point.averageMinutes == 32.8176)
         #expect(point.runs24h == 33)
+        #expect(point.validTasks == 112)
+        #expect(point.priceSamples == 104)
+        #expect(point.durationSamples == 112)
+        #expect(point.incompleteCostSamples == 2)
+        #expect(response.history?.count == 1)
+    }
+
+    @Test @MainActor func derivesTrendComparisonAndConfidenceWarning() throws {
+        let suiteName = "com.perryfinn.random-thoughts.metric-tests"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(Self.sampleResponseData, forKey: "cachedIntelligenceResponse")
+
+        let store = IntelligenceStore(defaults: defaults)
+        let maxPoint = try #require(
+            store.points.first { $0.model == "gpt-5.6-sol" && $0.effort == "max" }
+        )
+
+        let comparison = try #require(store.comparisonWithNextLowerEffort(for: maxPoint))
+        let iqChange = try #require(store.iqChange24Hours(for: maxPoint))
+        #expect(abs(iqChange - 2.5) < 0.0001)
+        #expect(comparison.baselineEffort == "high")
+        #expect(abs(comparison.iqDelta - 15.8036) < 0.0001)
+        #expect(abs((comparison.priceDeltaUSD ?? 0) - 4.980278) < 0.0001)
+        #expect(abs((comparison.minutesDelta ?? 0) - 12.8176) < 0.0001)
+        #expect(store.confidenceWarning(for: maxPoint) == .incompleteCost(2))
+    }
+
+    @Test @MainActor func flagsLowSampleBeforeIncompleteCost() throws {
+        let suiteName = "com.perryfinn.random-thoughts.warning-tests"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let point = IntelligencePoint(
+            model: "gpt-5.6-terra",
+            effort: "medium",
+            iq: 72,
+            averagePriceUSD: 1.2,
+            averageMinutes: 14,
+            runs24h: nil,
+            latestGradedAt: nil,
+            validTasks: 18,
+            priceSamples: 16,
+            durationSamples: 17,
+            incompleteCostSamples: 2
+        )
+        let store = IntelligenceStore(defaults: defaults)
+
+        #expect(store.confidenceWarning(for: point) == .lowSample(16))
     }
 
     @Test @MainActor func menuBarPanelReservesRoomForSelectedCard() throws {
@@ -40,6 +91,27 @@ struct RandomThoughtsTests {
         #expect(store.selectedPoints.count == 1)
         #expect(fittingSize.width == 568)
         #expect(fittingSize.height > 170)
+    }
+
+    @Test @MainActor func metricCardKeepsCompactHeightWithTrendAndWarning() throws {
+        let suiteName = "com.perryfinn.random-thoughts.card-layout-tests"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(Self.sampleResponseData, forKey: "cachedIntelligenceResponse")
+
+        let store = IntelligenceStore(defaults: defaults)
+        let point = try #require(store.selectedPoints.first)
+        let card = IntelligenceCard(
+            point: point,
+            iqChange24Hours: store.iqChange24Hours(for: point),
+            comparison: store.comparisonWithNextLowerEffort(for: point),
+            confidenceWarning: store.confidenceWarning(for: point)
+        )
+        .frame(width: 260)
+        let hostingView = NSHostingView(rootView: card)
+
+        #expect(hostingView.fittingSize.height == IntelligenceCard.minimumHeight)
     }
 
     @Test @MainActor func limitsTrackedPointsToConfiguredMaximum() throws {
@@ -118,10 +190,39 @@ struct RandomThoughtsTests {
               "model": "gpt-5.6-sol",
               "effort": "max",
               "iq": 105.8036,
+              "valid_tasks": 112,
               "average_price_usd": 8.980278,
+              "price_samples": 104,
               "average_minutes": 32.8176,
+              "duration_samples": 112,
+              "incomplete_cost_samples": 2,
               "runs_24h": 33,
               "latest_graded_at": "2026-08-07T10:34:41+00:00"
+            },
+            {
+              "model": "gpt-5.6-sol",
+              "effort": "high",
+              "iq": 90.0,
+              "valid_tasks": 112,
+              "average_price_usd": 4.0,
+              "price_samples": 112,
+              "average_minutes": 20.0,
+              "duration_samples": 112,
+              "incomplete_cost_samples": 0,
+              "runs_24h": 20,
+              "latest_graded_at": "2026-08-07T10:34:41+00:00"
+            }
+          ],
+          "history": [
+            {
+              "at": "2026-08-06T18:52:55+08:00",
+              "points": [
+                {
+                  "model": "gpt-5.6-sol",
+                  "effort": "max",
+                  "iq": 103.3036
+                }
+              ]
             }
           ]
         }

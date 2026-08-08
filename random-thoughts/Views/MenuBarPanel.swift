@@ -15,22 +15,32 @@ struct MenuBarPanel: View {
             } else if store.selectedPoints.isEmpty {
                 emptySelectionState
             } else {
-                GlassEffectContainer(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        ForEach(selectedModelNames, id: \.self) { model in
-                            VStack(alignment: .leading, spacing: 7) {
-                                modelGroupHeader(for: model)
+                ScrollView(.vertical) {
+                    GlassEffectContainer(spacing: Layout.cardSpacing) {
+                        VStack(alignment: .leading, spacing: Layout.groupSpacing) {
+                            ForEach(selectedModelNames, id: \.self) { model in
+                                VStack(alignment: .leading, spacing: Layout.headerSpacing) {
+                                    modelGroupHeader(for: model)
 
-                                LazyVGrid(columns: gridColumns, spacing: 10) {
-                                    ForEach(selectedPoints(for: model)) { point in
-                                        IntelligenceCard(point: point)
+                                    LazyVGrid(columns: gridColumns, spacing: Layout.cardSpacing) {
+                                        ForEach(selectedPoints(for: model)) { point in
+                                            IntelligenceCard(
+                                                point: point,
+                                                iqChange24Hours: store.iqChange24Hours(for: point),
+                                                comparison: store.comparisonWithNextLowerEffort(for: point),
+                                                confidenceWarning: store.confidenceWarning(for: point)
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
+                        .padding(.horizontal, 1)
                     }
-                    .padding(.horizontal, 1)
+                    .padding(.vertical, 1)
                 }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(height: min(cardContentHeight, Layout.maximumCardAreaHeight))
             }
 
             footer
@@ -44,8 +54,9 @@ struct MenuBarPanel: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: "brain.head.profile.fill")
+                .font(.system(size: 19, weight: .semibold))
                 .foregroundStyle(
                     LinearGradient(
                         colors: [.cyan, .indigo],
@@ -53,8 +64,15 @@ struct MenuBarPanel: View {
                         endPoint: .bottomTrailing
                     )
                 )
-            Text("随想")
-                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text("随想")
+                    .font(.headline)
+
+                Text("智能、成本与速度")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
 
             Spacer()
 
@@ -129,6 +147,7 @@ struct MenuBarPanel: View {
                     Label("设置", systemImage: "gearshape")
                 }
                 .buttonStyle(.borderless)
+                .pointerStyle(.link)
 
                 Button {
                     AppTelemetry.menuBar.info("Quit command selected")
@@ -137,6 +156,7 @@ struct MenuBarPanel: View {
                     Label("退出", systemImage: "power")
                 }
                 .buttonStyle(.borderless)
+                .pointerStyle(.link)
             }
         }
     }
@@ -155,9 +175,23 @@ struct MenuBarPanel: View {
 
     private var gridColumns: [GridItem] {
         [
-            GridItem(.flexible(), spacing: 10),
-            GridItem(.flexible(), spacing: 10)
+            GridItem(.flexible(), spacing: Layout.cardSpacing),
+            GridItem(.flexible(), spacing: Layout.cardSpacing)
         ]
+    }
+
+    private var cardContentHeight: CGFloat {
+        let groupHeights = selectedModelNames.map { model in
+            let pointCount = selectedPoints(for: model).count
+            let rowCount = CGFloat((pointCount + Layout.columnCount - 1) / Layout.columnCount)
+            let gridHeight = rowCount * IntelligenceCard.minimumHeight
+                + max(0, rowCount - 1) * Layout.cardSpacing
+            return Layout.groupHeaderHeight + Layout.headerSpacing + gridHeight
+        }
+
+        return groupHeights.reduce(0, +)
+            + CGFloat(max(0, groupHeights.count - 1)) * Layout.groupSpacing
+            + 2
     }
 
     private var selectedModelNames: [String] {
@@ -181,17 +215,18 @@ struct MenuBarPanel: View {
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                 .foregroundStyle(.secondary)
 
-            Text("\(points.count)")
-                .font(.system(size: 9, weight: .bold, design: .rounded))
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 1)
-                .background(Color.primary.opacity(0.055), in: Capsule())
-
             Spacer()
         }
         .padding(.horizontal, 3)
-        .frame(height: 16)
+        .frame(height: Layout.groupHeaderHeight)
     }
 
+    private enum Layout {
+        static let columnCount = 2
+        static let cardSpacing: CGFloat = 10
+        static let groupSpacing: CGFloat = 16
+        static let headerSpacing: CGFloat = 8
+        static let groupHeaderHeight: CGFloat = 18
+        static let maximumCardAreaHeight: CGFloat = 590
+    }
 }

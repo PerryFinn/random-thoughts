@@ -17,6 +17,10 @@
 
 遵循标准 Swift 和 SwiftUI 规范，使用四空格缩进。类型与文件名采用 `UpperCamelCase`，属性和函数采用 `lowerCamelCase`，名称应清楚表达行为，例如 `fetch()` 和 `comparisonWithNextLowerEffort`。保持视图职责单一，将网络请求和状态转换放入服务或 Store。涉及 UI 的测试与 API 使用 `@MainActor`；并发代码应保留明确的 `Sendable` 边界。项目未配置格式化器或 Linter，请使用 Xcode 格式化并保持编译无警告。
 
+## UI 交互规范
+
+可点击控件应采用与网页一致的鼠标反馈：启用状态的 `Button`、`Toggle` 等交互控件使用 `.pointerStyle(.link)`，让鼠标悬停时显示小手；禁用状态使用 `.pointerStyle(.default)`，避免暗示控件仍可点击。应将指针样式添加到具体控件，而不是外层容器，防止普通文本或空白区域错误显示小手。
+
 ## 测试指南
 
 单元与布局测试使用 Swift Testing（`@Test`、`#expect`、`#require`），UI 自动化使用 XCTest。测试名应描述具体行为，例如 `limitsTrackedPointsToConfiguredMaximum`。持久化测试应使用独立的 `UserDefaults` suite，并在 `defer` 中清理。数据解码、Store 逻辑和固定布局尺寸的修改都应补充回归测试。提交评审前运行完整测试命令；UI 测试需要活跃的 macOS 图形会话。

@@ -12,10 +12,15 @@ struct SettingsView: View {
                 Button("选择前 \(IntelligenceStore.selectionLimit) 项") {
                     store.selectAll()
                 }
+                .pointerStyle(.link)
+
                 Button("全部清除") {
                     store.clearSelection()
                 }
+                .pointerStyle(.link)
+
                 Spacer()
+
                 Button {
                     Task { await store.refresh() }
                 } label: {
@@ -27,6 +32,7 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(store.isRefreshing)
+                .pointerStyle(store.isRefreshing ? .default : .link)
             }
 
             if store.points.isEmpty {
@@ -38,6 +44,7 @@ struct SettingsView: View {
                     Button("重试") {
                         Task { await store.refresh() }
                     }
+                    .pointerStyle(.link)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -82,6 +89,7 @@ struct SettingsView: View {
                                     }
                                     .toggleStyle(.checkbox)
                                     .disabled(!store.canSelect(point))
+                                    .pointerStyle(store.canSelect(point) ? .link : .default)
                                     .help(
                                         store.canSelect(point)
                                             ? ""
