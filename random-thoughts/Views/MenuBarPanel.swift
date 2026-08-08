@@ -49,7 +49,6 @@ struct MenuBarPanel: View {
         .frame(width: 568)
         .task {
             AppTelemetry.menuBar.debug("Menu bar panel presented")
-            store.startUpdating()
         }
     }
 
@@ -75,20 +74,6 @@ struct MenuBarPanel: View {
             }
 
             Spacer()
-
-            Button {
-                Task { await store.refresh() }
-            } label: {
-                if store.isRefreshing {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Image(systemName: "arrow.clockwise")
-                }
-            }
-            .buttonStyle(.borderless)
-            .disabled(store.isRefreshing)
-            .help("立即刷新")
         }
     }
 
@@ -106,9 +91,11 @@ struct MenuBarPanel: View {
                 Text(store.errorMessage ?? "暂时没有模型数据")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                Button("重试") {
-                    Task { await store.refresh() }
+                Button("打开设置") {
+                    openSettings()
+                    SettingsWindowPresenter.bringToFront()
                 }
+                .pointerStyle(.link)
             }
         }
         .frame(maxWidth: .infinity, minHeight: 150)
