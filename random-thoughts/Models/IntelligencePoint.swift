@@ -112,6 +112,13 @@ struct IntelligenceHistoryPoint: Codable, Sendable {
     let iq: Double
 }
 
+struct IntelligenceIQHistorySample: Identifiable, Equatable, Sendable {
+    let at: Date
+    let iq: Double
+
+    var id: Date { at }
+}
+
 struct IntelligencePointComparison: Equatable, Sendable {
     let baselineEffort: String
     let iqDelta: Double
@@ -121,12 +128,15 @@ struct IntelligencePointComparison: Equatable, Sendable {
 
 enum IntelligenceConfidenceWarning: Equatable, Sendable {
     case lowSample(Int)
+    case lowCoverage(metric: String, available: Int, total: Int)
     case incompleteCost(Int)
 
     var title: String {
         switch self {
         case .lowSample:
             "样本较少"
+        case .lowCoverage:
+            "数据覆盖不足"
         case .incompleteCost:
             "成本待补"
         }
@@ -136,6 +146,8 @@ enum IntelligenceConfidenceWarning: Equatable, Sendable {
         switch self {
         case let .lowSample(count):
             "当前最少只有 \(count) 个有效样本，指标波动可能较大"
+        case let .lowCoverage(metric, available, total):
+            "\(metric)仅覆盖 \(available)/\(total) 道参评题，当前平均值仅供参考"
         case let .incompleteCost(count):
             "有 \(count) 次运行的成本数据不完整，平均成本已排除这些样本"
         }

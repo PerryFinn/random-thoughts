@@ -64,6 +64,29 @@ final class IntelligenceStore {
         }
     }
 
+    func iqHistory(for point: IntelligencePoint) -> [IntelligenceIQHistorySample] {
+        var iqByDate: [Date: Double] = [:]
+
+        for snapshot in history {
+            guard let date = Self.parseISO8601(snapshot.at),
+                  let historicalPoint = snapshot.points.first(where: {
+                      $0.model == point.model && $0.effort == point.effort
+                  }) else {
+                continue
+            }
+
+            iqByDate[date] = historicalPoint.iq
+        }
+
+        if let sourceUpdatedAt {
+            iqByDate[sourceUpdatedAt] = point.iq
+        }
+
+        return iqByDate
+            .map { IntelligenceIQHistorySample(at: $0.key, iq: $0.value) }
+            .sorted { $0.at < $1.at }
+    }
+
     func iqChange24Hours(for point: IntelligencePoint) -> Double? {
         guard let sourceUpdatedAt else { return nil }
         let targetDate = sourceUpdatedAt.addingTimeInterval(-Self.trendInterval)
@@ -126,6 +149,31 @@ final class IntelligenceStore {
         if let minimumSampleCount = sampleCounts.min(),
            minimumSampleCount < Self.minimumReliableSampleCount {
             return .lowSample(minimumSampleCount)
+        }
+
+        if let validTasks = point.validTasks,
+           validTasks > 0 {
+            let coverageCandidates = [
+                (metric: "成本数据", samples: point.priceSamples),
+                (metric: "耗时数据", samples: point.durationSamples)
+            ]
+            .compactMap { candidate -> (metric: String, samples: Int, ratio: Double)? in
+                guard let samples = candidate.samples else { return nil }
+                return (
+                    metric: candidate.metric,
+                    samples: samples,
+                    ratio: Double(samples) / Double(validTasks)
+                )
+            }
+
+            if let lowestCoverage = coverageCandidates.min(by: { $0.ratio < $1.ratio }),
+               lowestCoverage.ratio < Self.minimumCoverageRatio {
+                return .lowCoverage(
+                    metric: lowestCoverage.metric,
+                    available: lowestCoverage.samples,
+                    total: validTasks
+                )
+            }
         }
 
         if let incompleteCostSamples = point.incompleteCostSamples,
@@ -260,6 +308,7 @@ final class IntelligenceStore {
     private static let trendInterval: TimeInterval = 24 * 60 * 60
     private static let trendTolerance: TimeInterval = 6 * 60 * 60
     private static let minimumReliableSampleCount = 30
+    private static let minimumCoverageRatio = 0.9
     private static let effortRanks = Dictionary(
         uniqueKeysWithValues: ["low", "medium", "high", "xhigh", "max", "ultra"]
             .enumerated()

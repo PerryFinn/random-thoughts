@@ -3,10 +3,49 @@ import OSLog
 import SwiftUI
 
 struct MenuBarPanel: View {
+    static let panelWidth: CGFloat = 568
+
     let store: IntelligenceStore
     @Environment(\.openSettings) private var openSettings
+    @State private var selectedPointID: IntelligencePoint.ID?
+
+    init(store: IntelligenceStore, selectedPointID: IntelligencePoint.ID? = nil) {
+        self.store = store
+        _selectedPointID = State(initialValue: selectedPointID)
+    }
 
     var body: some View {
+        Group {
+            if let selectedPoint {
+                IntelligenceDetailView(
+                    point: selectedPoint,
+                    iqChange24Hours: store.iqChange24Hours(for: selectedPoint),
+                    iqHistory: store.iqHistory(for: selectedPoint),
+                    confidenceWarning: store.confidenceWarning(for: selectedPoint),
+                    sourceUpdatedAt: store.sourceUpdatedAt,
+                    onBack: showOverview
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            } else {
+                overview
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
+        .frame(width: Self.panelWidth)
+        .animation(.snappy(duration: 0.22), value: selectedPointID)
+        .onChange(of: store.points.map(\.id)) { _, availablePointIDs in
+            guard let selectedPointID,
+                  !availablePointIDs.contains(selectedPointID) else {
+                return
+            }
+            self.selectedPointID = nil
+        }
+        .task {
+            AppTelemetry.menuBar.debug("Menu bar panel presented")
+        }
+    }
+
+    private var overview: some View {
         VStack(spacing: 12) {
             header
 
@@ -24,12 +63,20 @@ struct MenuBarPanel: View {
 
                                     LazyVGrid(columns: gridColumns, spacing: Layout.cardSpacing) {
                                         ForEach(selectedPoints(for: model)) { point in
-                                            IntelligenceCard(
-                                                point: point,
-                                                iqChange24Hours: store.iqChange24Hours(for: point),
-                                                comparison: store.comparisonWithNextLowerEffort(for: point),
-                                                confidenceWarning: store.confidenceWarning(for: point)
-                                            )
+                                            Button {
+                                                showDetail(for: point)
+                                            } label: {
+                                                IntelligenceCard(
+                                                    point: point,
+                                                    iqChange24Hours: store.iqChange24Hours(for: point),
+                                                    comparison: store.comparisonWithNextLowerEffort(for: point),
+                                                    confidenceWarning: store.confidenceWarning(for: point)
+                                                )
+                                                .contentShape(Rectangle())
+                                            }
+                                            .buttonStyle(.plain)
+                                            .pointerStyle(.link)
+                                            .accessibilityHint("打开模型详情")
                                         }
                                     }
                                 }
@@ -46,10 +93,23 @@ struct MenuBarPanel: View {
             footer
         }
         .padding(14)
-        .frame(width: 568)
-        .task {
-            AppTelemetry.menuBar.debug("Menu bar panel presented")
-        }
+    }
+
+    private var selectedPoint: IntelligencePoint? {
+        guard let selectedPointID else { return nil }
+        return store.points.first { $0.id == selectedPointID }
+    }
+
+    private func showDetail(for point: IntelligencePoint) {
+        AppTelemetry.menuBar.info(
+            "Model detail opened; pointID=\(point.id, privacy: .private(mask: .hash))"
+        )
+        selectedPointID = point.id
+    }
+
+    private func showOverview() {
+        AppTelemetry.menuBar.info("Model detail closed")
+        selectedPointID = nil
     }
 
     private var header: some View {
