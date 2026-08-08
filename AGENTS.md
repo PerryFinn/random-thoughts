@@ -27,6 +27,8 @@
 
 使用 Xcode 打开 `random-thoughts.xcodeproj` 可进行预览和交互式调试。项目最低支持 macOS 26.5。
 
+用户使用 Xcode 运行和调试应用。Agent 验证改动时默认只执行构建或单元测试；仅在用户明确要求时使用 `run`、`verify`、UI 测试或其他会启动应用的方式。
+
 ## 编码风格与命名约定
 
 遵循标准 Swift 和 SwiftUI 规范，使用四空格缩进。类型与文件名采用 `UpperCamelCase`，属性和函数采用 `lowerCamelCase`，名称应清楚表达行为，例如 `fetch()` 和 `comparisonWithNextLowerEffort`。保持视图职责单一，将网络请求和状态转换放入服务或 Store。涉及 UI 的测试与 API 使用 `@MainActor`；并发代码应保留明确的 `Sendable` 边界。项目未配置格式化器或 Linter，请使用 Xcode 格式化并保持编译无警告。
@@ -37,7 +39,7 @@
 
 ## 测试指南
 
-单元与布局测试使用 Swift Testing（`@Test`、`#expect`、`#require`），UI 自动化使用 XCTest。测试名应描述具体行为，例如 `limitsTrackedPointsToConfiguredMaximum`。持久化测试应使用独立的 `UserDefaults` suite，并在 `defer` 中清理。数据解码、Store 逻辑和固定布局尺寸的修改都应补充回归测试。提交评审前运行完整测试命令；UI 测试需要活跃的 macOS 图形会话。
+单元与布局测试使用 Swift Testing（`@Test`、`#expect`、`#require`），UI 自动化使用 XCTest。测试名应描述具体行为，例如 `limitsTrackedPointsToConfiguredMaximum`。持久化测试应使用独立的 `UserDefaults` suite，并在 `defer` 中清理。数据解码、Store 逻辑和固定布局尺寸的修改都应补充回归测试。提交评审前至少运行相关单元测试；UI 测试需要活跃的 macOS 图形会话，并仅在用户明确要求时运行。
 
 ## 提交与拉取请求指南
 
