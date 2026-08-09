@@ -6,11 +6,17 @@ struct MenuBarPanel: View {
     static let panelWidth: CGFloat = 568
 
     let store: IntelligenceStore
+    let proximityStore: ProximityLockStore?
     @Environment(\.openSettings) private var openSettings
     @State private var selectedPointID: IntelligencePoint.ID?
 
-    init(store: IntelligenceStore, selectedPointID: IntelligencePoint.ID? = nil) {
+    init(
+        store: IntelligenceStore,
+        selectedPointID: IntelligencePoint.ID? = nil,
+        proximityStore: ProximityLockStore? = nil
+    ) {
         self.store = store
+        self.proximityStore = proximityStore
         _selectedPointID = State(initialValue: selectedPointID)
     }
 
@@ -172,6 +178,37 @@ struct MenuBarPanel: View {
 
     private var footer: some View {
         VStack(spacing: 10) {
+            if let proximityStore {
+                HStack(spacing: 8) {
+                    Image(systemName: proximityStore.statusSystemImage)
+                        .foregroundStyle(
+                            proximityStore.latestRSSI == nil
+                                ? Color.secondary
+                                : Color.green
+                        )
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(proximityStore.selectedDeviceName ?? "蓝牙解锁")
+                            .font(.caption.weight(.medium))
+                            .lineLimit(1)
+                        Text(proximityStore.statusText)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    Button {
+                        proximityStore.lockNow()
+                    } label: {
+                        Label("锁屏", systemImage: "lock.display")
+                    }
+                    .buttonStyle(.borderless)
+                    .pointerStyle(.link)
+                }
+            }
+
             Divider()
 
             HStack(spacing: 8) {

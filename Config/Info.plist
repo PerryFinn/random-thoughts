@@ -18,9 +18,11 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
-	<key>LSUIElement</key>
-	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>随想使用蓝牙检测已选择设备的距离，并在设备靠近或远离时解锁或锁定 Mac。</string>
 </dict>
 </plist>

@@ -18,6 +18,7 @@ enum SettingsWindowPresenter {
 
         Task { @MainActor in
             defer { isFocusAttemptActive = false }
+            var didFocusWindow = false
 
             for delay in [0, 50, 150] {
                 if delay > 0 {
@@ -26,22 +27,29 @@ enum SettingsWindowPresenter {
 
                 NSApplication.shared.activate(ignoringOtherApps: true)
                 if focusSettingsWindow() {
-                    AppTelemetry.windowing.info("Settings window focused")
-                    return
+                    didFocusWindow = true
                 }
             }
 
-            AppTelemetry.windowing.error("Settings window unavailable after focus retries")
+            if didFocusWindow {
+                AppTelemetry.windowing.info("Settings window focused")
+            } else {
+                AppTelemetry.windowing.error("Settings window unavailable after focus retries")
+            }
         }
     }
 
     @discardableResult
     private static func focusSettingsWindow() -> Bool {
-        guard let window = NSApplication.shared.windows.first(where: { window in
+        let candidates = NSApplication.shared.windows.filter { window in
             window.canBecomeKey
                 && window.styleMask.contains(.titled)
                 && !window.styleMask.contains(.nonactivatingPanel)
-        }) else {
+        }
+        guard let window = candidates.first(where: { window in
+            window.title.localizedCaseInsensitiveContains("settings")
+                || window.title.localizedCaseInsensitiveContains("设置")
+        }) ?? candidates.first else {
             return false
         }
 

@@ -8,4 +8,5 @@ enum AppTelemetry {
     static let windowing = Logger(subsystem: subsystem, category: "Windowing")
     static let menuBar = Logger(subsystem: subsystem, category: "MenuBar")
     static let refresh = Logger(subsystem: subsystem, category: "Refresh")
+    static let proximity = Logger(subsystem: subsystem, category: "Proximity")
 }

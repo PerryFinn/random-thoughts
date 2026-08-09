@@ -1,6 +1,81 @@
 import SwiftUI
 
 struct SettingsView: View {
+    static let windowSize = CGSize(width: 860, height: 620)
+
+    let store: IntelligenceStore
+    let proximityStore: ProximityLockStore
+
+    @State private var selection: SettingsRoute = .intelligence
+
+    var body: some View {
+        NavigationSplitView {
+            List(SettingsRoute.allCases, selection: $selection) { route in
+                HStack(spacing: 10) {
+                    Image(systemName: route.systemImage)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(route.title)
+                            .lineLimit(1)
+                        Text(route.subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .contentShape(Rectangle())
+                .pointerStyle(.link)
+                .tag(route)
+            }
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 180, ideal: 196, max: 220)
+        } detail: {
+            switch selection {
+            case .intelligence:
+                IntelligenceSettingsView(store: store)
+            case .proximityUnlock:
+                ProximitySettingsView(store: proximityStore)
+            }
+        }
+        .frame(width: Self.windowSize.width, height: Self.windowSize.height)
+        .onAppear {
+            SettingsWindowPresenter.bringToFront()
+        }
+    }
+
+    static func formatSourceUpdatedAt(
+        _ date: Date,
+        timeZone: TimeZone = .current
+    ) -> String {
+        IntelligenceSettingsView.formatSourceUpdatedAt(date, timeZone: timeZone)
+    }
+}
+
+private enum SettingsRoute: String, CaseIterable, Identifiable {
+    case intelligence
+    case proximityUnlock
+
+    var id: Self { self }
+
+    private var metadata: (title: String, subtitle: String, systemImage: String) {
+        switch self {
+        case .intelligence:
+            ("模型监控", "状态栏指标与刷新", "brain.head.profile")
+        case .proximityUnlock:
+            ("蓝牙解锁", "设备、距离与系统动作", "lock.open.display")
+        }
+    }
+
+    var title: String { metadata.title }
+
+    var subtitle: String { metadata.subtitle }
+
+    var systemImage: String { metadata.systemImage }
+}
+
+private struct IntelligenceSettingsView: View {
     let store: IntelligenceStore
 
     var body: some View {
@@ -99,9 +174,7 @@ struct SettingsView: View {
                             } header: {
                                 HStack {
                                     Text(model)
-
                                     Spacer()
-
                                     Text("平均耗时")
                                         .frame(width: 88, alignment: .trailing)
                                 }
@@ -126,10 +199,6 @@ struct SettingsView: View {
             }
         }
         .padding(20)
-        .frame(width: 560, height: 520)
-        .onAppear {
-            SettingsWindowPresenter.bringToFront()
-        }
     }
 
     static func formatSourceUpdatedAt(
