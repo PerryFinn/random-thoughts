@@ -4,6 +4,8 @@ import SwiftUI
 
 struct ProximitySettingsView: View {
     let store: ProximityLockStore
+    @State private var aliasEditorPresented = false
+    @State private var aliasDraft = ""
 
     var body: some View {
         Form {
@@ -34,6 +36,15 @@ struct ProximitySettingsView: View {
         } message: {
             Text(store.lastError ?? "未知错误")
         }
+        .alert("重命名设备", isPresented: $aliasEditorPresented) {
+            TextField("设备名称", text: $aliasDraft)
+            Button("取消", role: .cancel) {}
+            Button("保存") {
+                store.renameSelectedDevice(to: aliasDraft)
+            }
+        } message: {
+            Text("名称仅保存在这台 Mac 上；留空可恢复设备报告的名称。")
+        }
     }
 
     private var deviceSection: some View {
@@ -49,7 +60,7 @@ struct ProximitySettingsView: View {
 
                 ForEach(store.devices) { device in
                     HStack {
-                        Text(device.displayTitle)
+                        Text(store.displayName(for: device))
                         Spacer()
                         Text("\(device.rssi) dBm")
                             .foregroundStyle(.secondary)
@@ -59,6 +70,20 @@ struct ProximitySettingsView: View {
                 }
             }
             .pointerStyle(.link)
+
+            if store.configuration.selectedDeviceID != nil {
+                LabeledContent("显示名称") {
+                    HStack(spacing: 8) {
+                        Text(store.selectedDeviceName ?? "未知蓝牙设备")
+                            .foregroundStyle(.secondary)
+                        Button("重命名…") {
+                            aliasDraft = store.selectedDeviceName ?? ""
+                            aliasEditorPresented = true
+                        }
+                        .pointerStyle(.link)
+                    }
+                }
+            }
 
             LabeledContent("当前状态") {
                 Label(store.statusText, systemImage: store.statusSystemImage)
@@ -88,7 +113,7 @@ struct ProximitySettingsView: View {
         } header: {
             Text("监控设备")
         } footer: {
-            Text("打开此页面时会持续扫描附近的低功耗蓝牙设备。关闭设置后，随想仍会监控已选择的设备。")
+            Text("打开此页面时会持续扫描附近的低功耗蓝牙设备。设备未报告名称时，可选择后为它设置一个仅在本机使用的名称。")
         }
     }
 

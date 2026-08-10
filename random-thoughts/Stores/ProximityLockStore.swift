@@ -24,6 +24,7 @@ final class ProximityLockStore {
     private(set) var accessibilityTrusted = false
     private(set) var launchAtLoginRequested = false
     private(set) var lastError: String?
+    private var deviceAliases: [String: String]
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let systemController: ProximitySystemControlling
@@ -42,7 +43,8 @@ final class ProximityLockStore {
 
     private enum Keys {
         static let configuration = "proximity.configuration.v1"
-        static let selectedDeviceName = "proximity.selected-device-name"
+        static let selectedDeviceReportedName = "proximity.selected-device-name"
+        static let deviceAliases = "proximity.device-aliases.v1"
         static let lastUpdateCheck = "proximity.last-update-check"
     }
 
@@ -54,6 +56,7 @@ final class ProximityLockStore {
         self.defaults = defaults
         self.bluetoothController = bluetoothController
         self.systemController = systemController ?? ProximitySystemController()
+        deviceAliases = defaults.dictionary(forKey: Keys.deviceAliases) as? [String: String] ?? [:]
 
         if let data = defaults.data(forKey: Keys.configuration),
            let saved = try? JSONDecoder().decode(ProximityConfiguration.self, from: data) {
@@ -71,7 +74,14 @@ final class ProximityLockStore {
     }
 
     var selectedDeviceName: String? {
-        selectedDevice?.name ?? defaults.string(forKey: Keys.selectedDeviceName)
+        guard let selectedDeviceID = configuration.selectedDeviceID else { return nil }
+        return deviceAlias(for: selectedDeviceID)
+            ?? selectedDevice?.name
+            ?? defaults.string(forKey: Keys.selectedDeviceReportedName)
+    }
+
+    func displayName(for device: ProximityDevice) -> String {
+        deviceAlias(for: device.id) ?? device.name
     }
 
     var availableUnlockRSSIValues: [Int] {
@@ -198,15 +208,26 @@ final class ProximityLockStore {
         var updated = configuration
         updated.selectedDeviceID = deviceID
         if let device = devices.first(where: { $0.id == deviceID }) {
-            defaults.set(device.name, forKey: Keys.selectedDeviceName)
+            defaults.set(device.name, forKey: Keys.selectedDeviceReportedName)
         } else if deviceID == nil {
-            defaults.removeObject(forKey: Keys.selectedDeviceName)
+            defaults.removeObject(forKey: Keys.selectedDeviceReportedName)
         }
         updateConfiguration(updated)
 
         if deviceID != nil, configuration.unlockRSSI != nil, !hasPassword {
             promptForPassword()
         }
+    }
+
+    func renameSelectedDevice(to name: String) {
+        guard let deviceID = configuration.selectedDeviceID else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            deviceAliases.removeValue(forKey: deviceID.uuidString)
+        } else {
+            deviceAliases[deviceID.uuidString] = trimmed
+        }
+        defaults.set(deviceAliases, forKey: Keys.deviceAliases)
     }
 
     func startScanning() {
@@ -294,7 +315,7 @@ final class ProximityLockStore {
         case .devices(let devices):
             self.devices = devices
             if let selectedDevice {
-                defaults.set(selectedDevice.name, forKey: Keys.selectedDeviceName)
+                defaults.set(selectedDevice.name, forKey: Keys.selectedDeviceReportedName)
             }
 
         case .signal(let rssi, let active):
@@ -305,6 +326,10 @@ final class ProximityLockStore {
             isPresent = present
             handlePresence(present: present, reason: reason)
         }
+    }
+
+    private func deviceAlias(for id: UUID) -> String? {
+        deviceAliases[id.uuidString]
     }
 
     private func handlePresence(

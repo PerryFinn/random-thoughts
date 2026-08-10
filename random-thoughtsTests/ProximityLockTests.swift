@@ -124,6 +124,59 @@ struct ProximityLockTests {
         #expect(!ReleaseUpdateChecker.isNewerVersion("0.9.9", than: "1.0"))
     }
 
+    @Test func advertisedBluetoothNameTakesPriority() {
+        let name = ProximityDeviceNameResolver.resolve(
+            id: UUID(),
+            advertisedName: "  Perry 的 iPhone  ",
+            peripheralName: "iPhone",
+            manufacturer: "Apple Inc.",
+            model: "iPhone14,2",
+            beaconDescription: nil
+        )
+
+        #expect(name == "Perry 的 iPhone")
+    }
+
+    @Test func specificAppleModelReplacesGenericBluetoothName() {
+        let name = ProximityDeviceNameResolver.resolve(
+            id: UUID(),
+            advertisedName: "iPhone",
+            peripheralName: "iPhone",
+            manufacturer: "Apple Inc.",
+            model: "iPhone14,2",
+            beaconDescription: nil
+        )
+
+        #expect(name == "iPhone 13 Pro")
+    }
+
+    @Test func genericDeviceTypeTakesPriorityOverManufacturerAlone() {
+        let name = ProximityDeviceNameResolver.resolve(
+            id: UUID(),
+            advertisedName: "iPhone",
+            peripheralName: nil,
+            manufacturer: "Apple Inc.",
+            model: nil,
+            beaconDescription: nil
+        )
+
+        #expect(name == "iPhone")
+    }
+
+    @Test func unnamedBluetoothDeviceUsesShortIdentifier() throws {
+        let id = try #require(UUID(uuidString: "12345678-1234-1234-1234-1234567890AB"))
+        let name = ProximityDeviceNameResolver.resolve(
+            id: id,
+            advertisedName: nil,
+            peripheralName: nil,
+            manufacturer: nil,
+            model: nil,
+            beaconDescription: nil
+        )
+
+        #expect(name == "未知蓝牙设备 · 1234")
+    }
+
     @Test @MainActor func settingsWindowKeepsMigratedLayoutSize() {
         #expect(SettingsView.windowSize == CGSize(width: 860, height: 620))
     }
@@ -146,6 +199,73 @@ struct ProximityLockTests {
 
         store.requestAccessibilityPermission()
         #expect(system.accessibilityPermissionRequests == 1)
+    }
+
+    @Test @MainActor func deviceAliasOverridesAndPersistsDiscoveredName() throws {
+        let suiteName = "com.perryfinn.random-thoughts.proximity-alias-tests"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let id = UUID()
+        let bluetooth = FakeBluetoothController()
+        let store = ProximityLockStore(
+            defaults: defaults,
+            bluetoothController: bluetooth,
+            systemController: FakeProximitySystemController()
+        )
+        let device = ProximityDevice(
+            id: id,
+            name: "iPhone 13 Pro",
+            rssi: -48
+        )
+        store.start()
+        bluetooth.send(.devices([device]))
+        store.selectDevice(id)
+
+        store.renameSelectedDevice(to: "  我的手机  ")
+
+        #expect(store.selectedDeviceName == "我的手机")
+        #expect(store.displayName(for: device) == "我的手机")
+
+        let restoredStore = ProximityLockStore(
+            defaults: defaults,
+            bluetoothController: FakeBluetoothController(),
+            systemController: FakeProximitySystemController()
+        )
+        #expect(restoredStore.selectedDeviceName == "我的手机")
+    }
+
+    @Test @MainActor func clearingAliasForOfflineDeviceRestoresReportedName() throws {
+        let suiteName = "com.perryfinn.random-thoughts.proximity-clear-alias-tests"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let id = UUID()
+        let bluetooth = FakeBluetoothController()
+        let store = ProximityLockStore(
+            defaults: defaults,
+            bluetoothController: bluetooth,
+            systemController: FakeProximitySystemController()
+        )
+        let device = ProximityDevice(id: id, name: "iPhone 13 Pro", rssi: -48)
+        store.start()
+        bluetooth.send(.devices([device]))
+        store.selectDevice(id)
+        store.renameSelectedDevice(to: "我的手机")
+        bluetooth.send(.devices([]))
+
+        store.renameSelectedDevice(to: "   ")
+
+        #expect(store.selectedDeviceName == "iPhone 13 Pro")
+
+        let restoredStore = ProximityLockStore(
+            defaults: defaults,
+            bluetoothController: FakeBluetoothController(),
+            systemController: FakeProximitySystemController()
+        )
+        #expect(restoredStore.selectedDeviceName == "iPhone 13 Pro")
     }
 
     @Test @MainActor func awayEventLocksNotifiesAndRunsScript() throws {

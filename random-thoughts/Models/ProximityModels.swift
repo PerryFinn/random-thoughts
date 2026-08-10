@@ -4,14 +4,6 @@ struct ProximityDevice: Identifiable, Hashable, Sendable {
     let id: UUID
     var name: String
     var rssi: Int
-    var macAddress: String?
-
-    var displayTitle: String {
-        if let macAddress {
-            return "\(name)（\(macAddress.uppercased())）"
-        }
-        return name
-    }
 }
 
 enum ProximityBluetoothState: Equatable, Sendable {

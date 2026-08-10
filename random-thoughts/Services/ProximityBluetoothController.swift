@@ -31,7 +31,6 @@ final class ProximityBluetoothController: NSObject, ProximityBluetoothControllin
     private var maintenanceTask: Task<Void, Never>?
     private var connectionTask: Task<Void, Never>?
     private var lastActiveReadAt: Date?
-    private let deviceInfoResolver = BluetoothDeviceInfoResolver()
 
     init(configuration: ProximityConfiguration) {
         self.configuration = configuration
@@ -250,19 +249,20 @@ final class ProximityBluetoothController: NSObject, ProximityBluetoothControllin
             existing.peripheral = peripheral
             existing.rssi = rssi
             existing.lastSeenAt = Date()
+            if let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String {
+                existing.advertisedName = advertisedName
+            }
             if let data = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data {
                 existing.advertisementData = data
             }
             return existing
         }
 
-        let resolved = deviceInfoResolver.resolve(uuid: peripheral.identifier)
         let device = InternalDevice(
             id: peripheral.identifier,
             peripheral: peripheral,
             rssi: rssi,
-            resolvedName: resolved.name,
-            macAddress: resolved.macAddress,
+            advertisedName: advertisementData[CBAdvertisementDataLocalNameKey] as? String,
             advertisementData: advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data
         )
         discoveredDevices[peripheral.identifier] = device
@@ -427,6 +427,11 @@ extension ProximityBluetoothController: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didModifyServices invalidatedServices: [CBService]) {
         peripheral.discoverServices([Self.deviceInformation])
     }
+
+    func peripheralDidUpdateName(_ peripheral: CBPeripheral) {
+        guard discoveredDevices[peripheral.identifier] != nil else { return }
+        publishDevices()
+    }
 }
 
 @MainActor
@@ -434,8 +439,7 @@ private final class InternalDevice {
     let id: UUID
     var peripheral: CBPeripheral
     var rssi: Int
-    var resolvedName: String?
-    var macAddress: String?
+    var advertisedName: String?
     var advertisementData: Data?
     var manufacturer: String?
     var model: String?
@@ -445,15 +449,13 @@ private final class InternalDevice {
         id: UUID,
         peripheral: CBPeripheral,
         rssi: Int,
-        resolvedName: String?,
-        macAddress: String?,
+        advertisedName: String?,
         advertisementData: Data?
     ) {
         self.id = id
         self.peripheral = peripheral
         self.rssi = rssi
-        self.resolvedName = resolvedName
-        self.macAddress = macAddress
+        self.advertisedName = advertisedName
         self.advertisementData = advertisementData
     }
 
@@ -461,41 +463,19 @@ private final class InternalDevice {
         ProximityDevice(
             id: id,
             name: displayName,
-            rssi: rssi,
-            macAddress: macAddress
+            rssi: rssi
         )
     }
 
     private var displayName: String {
-        if let resolvedName,
-           resolvedName != "iPhone",
-           resolvedName != "iPad" {
-            return resolvedName
-        }
-        if let model,
-           manufacturer == "Apple Inc.",
-           let friendlyName = appleDeviceNames[model] {
-            return friendlyName
-        }
-        if let manufacturer, let model {
-            return "\(manufacturer)/\(model)"
-        }
-        if let manufacturer {
-            return manufacturer
-        }
-        if let name = normalized(peripheral.name) {
-            return name
-        }
-        if let model {
-            return model
-        }
-        if let beaconDescription {
-            return beaconDescription
-        }
-        if let resolvedName {
-            return resolvedName
-        }
-        return macAddress ?? id.uuidString
+        ProximityDeviceNameResolver.resolve(
+            id: id,
+            advertisedName: advertisedName,
+            peripheralName: peripheral.name,
+            manufacturer: manufacturer,
+            model: model,
+            beaconDescription: beaconDescription
+        )
     }
 
     private var beaconDescription: String? {
@@ -510,11 +490,5 @@ private final class InternalDevice {
         let transmittedPower = Int(Int8(bitPattern: advertisementData[24]))
         let distance = pow(10, Double(transmittedPower - rssi) / 20)
         return String(format: "iBeacon [%d, %d] %.1fm", major, minor, distance)
-    }
-
-    private func normalized(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 }
