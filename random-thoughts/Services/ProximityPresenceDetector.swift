@@ -119,6 +119,27 @@ enum ProximityBluetoothScanPolicy {
     }
 }
 
+enum ProximityAutomaticUnlockPolicy {
+    static func isEnabled(configuration: ProximityConfiguration) -> Bool {
+        configuration.selectedDeviceID != nil
+            && configuration.unlockRSSI != nil
+    }
+
+    static func shouldAttempt(
+        configuration: ProximityConfiguration,
+        manualLock: Bool,
+        isPresent: Bool,
+        systemSleeping: Bool,
+        displaySleeping: Bool
+    ) -> Bool {
+        isEnabled(configuration: configuration)
+            && !manualLock
+            && isPresent
+            && !systemSleeping
+            && !displaySleeping
+    }
+}
+
 enum ProximityScreenUnlockPolicy {
     struct Actions: Equatable, Sendable {
         var shouldRunIntrudedScript: Bool

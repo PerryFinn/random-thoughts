@@ -177,8 +177,256 @@ struct ProximityLockTests {
         #expect(name == "未知蓝牙设备 · 1234")
     }
 
+    @Test @MainActor func devicePickerKeepsExistingOrderWhenSignalRankingChanges() throws {
+        let suiteName = "com.perryfinn.random-thoughts.proximity-picker-order-tests"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let firstID = UUID()
+        let secondID = UUID()
+        let newID = UUID()
+        let bluetooth = FakeBluetoothController()
+        let store = ProximityLockStore(
+            defaults: defaults,
+            bluetoothController: bluetooth,
+            systemController: FakeProximitySystemController()
+        )
+        store.start()
+        bluetooth.send(
+            .devices([
+                ProximityDevice(id: firstID, name: "第一台", rssi: -40),
+                ProximityDevice(id: secondID, name: "第二台", rssi: -60)
+            ])
+        )
+        store.beginDeviceSelection()
+        defer { store.endDeviceSelection() }
+
+        bluetooth.send(
+            .devices([
+                ProximityDevice(id: secondID, name: "第二台", rssi: -35),
+                ProximityDevice(id: firstID, name: "第一台", rssi: -80),
+                ProximityDevice(id: newID, name: "新设备", rssi: -45)
+            ])
+        )
+
+        #expect(store.devicePickerEntries.map(\.id) == [firstID, secondID, newID])
+        #expect(store.devicePickerEntries.map(\.rssi) == [-80, -35, -45])
+    }
+
+    @Test @MainActor func devicePickerKeepsMissingDeviceAsTemporarilyUnavailable() throws {
+        let suiteName = "com.perryfinn.random-thoughts.proximity-picker-offline-tests"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let visibleID = UUID()
+        let missingID = UUID()
+        let bluetooth = FakeBluetoothController()
+        let store = ProximityLockStore(
+            defaults: defaults,
+            bluetoothController: bluetooth,
+            systemController: FakeProximitySystemController()
+        )
+        store.start()
+        bluetooth.send(
+            .devices([
+                ProximityDevice(id: visibleID, name: "在线设备", rssi: -48),
+                ProximityDevice(id: missingID, name: "间歇设备", rssi: -65)
+            ])
+        )
+        store.beginDeviceSelection()
+        defer { store.endDeviceSelection() }
+
+        bluetooth.send(
+            .devices([ProximityDevice(id: visibleID, name: "在线设备", rssi: -50)])
+        )
+
+        let missing = try #require(store.devicePickerEntries.first { $0.id == missingID })
+        #expect(missing.rssi == nil)
+        #expect(
+            missing.signal(at: Date(), bluetoothPoweredOn: true) == .unavailable
+        )
+    }
+
+    @Test @MainActor func devicePickerPinsOfflineSelectedDeviceToTop() throws {
+        let suiteName = "com.perryfinn.random-thoughts.proximity-picker-selected-tests"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let selectedID = UUID()
+        let discoveredID = UUID()
+        let bluetooth = FakeBluetoothController()
+        let store = ProximityLockStore(
+            defaults: defaults,
+            bluetoothController: bluetooth,
+            systemController: FakeProximitySystemController()
+        )
+        store.start()
+        store.selectDevice(
+            ProximityDeviceSelection(id: selectedID, reportedName: "我的手机")
+        )
+        bluetooth.send(
+            .devices([ProximityDevice(id: discoveredID, name: "附近设备", rssi: -50)])
+        )
+        store.beginDeviceSelection()
+        defer { store.endDeviceSelection() }
+
+        let selected = try #require(store.devicePickerEntries.first)
+        #expect(store.devicePickerEntries.map(\.id) == [selectedID, discoveredID])
+        #expect(selected.displayName == "我的手机")
+        #expect(selected.signal(at: Date(), bluetoothPoweredOn: true) == .unavailable)
+    }
+
     @Test @MainActor func settingsWindowKeepsMigratedLayoutSize() {
         #expect(SettingsView.windowSize == CGSize(width: 860, height: 620))
+    }
+
+    @Test @MainActor func devicePickerKeepsConfiguredLayoutSize() {
+        #expect(ProximityDevicePickerSheet.windowSize == CGSize(width: 500, height: 420))
+    }
+
+    @Test func automaticUnlockRequiresSelectedDevice() {
+        var configuration = ProximityConfiguration.default
+        configuration.selectedDeviceID = UUID()
+
+        #expect(
+            ProximityAutomaticUnlockPolicy.shouldAttempt(
+                configuration: configuration,
+                manualLock: false,
+                isPresent: true,
+                systemSleeping: false,
+                displaySleeping: false
+            )
+        )
+
+        configuration.selectedDeviceID = nil
+
+        #expect(!ProximityAutomaticUnlockPolicy.isEnabled(configuration: configuration))
+        #expect(
+            !ProximityAutomaticUnlockPolicy.shouldAttempt(
+                configuration: configuration,
+                manualLock: false,
+                isPresent: true,
+                systemSleeping: false,
+                displaySleeping: false
+            )
+        )
+    }
+
+    @Test @MainActor func stoppingMonitoringClearsDeviceAndPresenceState() throws {
+        let suiteName = "com.perryfinn.random-thoughts.proximity-stop-monitoring-tests"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let id = UUID()
+        let bluetooth = FakeBluetoothController()
+        let store = ProximityLockStore(
+            defaults: defaults,
+            bluetoothController: bluetooth,
+            systemController: FakeProximitySystemController()
+        )
+        store.start()
+        store.selectDevice(
+            ProximityDeviceSelection(id: id, reportedName: "我的手机")
+        )
+        bluetooth.send(.signal(rssi: -48, active: true))
+
+        store.stopMonitoring()
+
+        #expect(store.configuration.selectedDeviceID == nil)
+        #expect(store.selectedDeviceName == nil)
+        #expect(store.latestRSSI == nil)
+        #expect(!store.isPresent)
+        #expect(bluetooth.monitoredDeviceID == nil)
+        #expect(bluetooth.monitoringRequests == [nil, id, nil])
+    }
+
+    @Test @MainActor func selectingUnavailableDevicePreservesItsOwnName() throws {
+        let suiteName = "com.perryfinn.random-thoughts.proximity-offline-selection-tests"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let firstID = UUID()
+        let secondID = UUID()
+        let bluetooth = FakeBluetoothController()
+        let store = ProximityLockStore(
+            defaults: defaults,
+            bluetoothController: bluetooth,
+            systemController: FakeProximitySystemController()
+        )
+        store.start()
+        store.selectDevice(
+            ProximityDeviceSelection(id: firstID, reportedName: "旧设备")
+        )
+        store.beginDeviceSelection()
+        defer { store.endDeviceSelection() }
+        bluetooth.send(
+            .devices([ProximityDevice(id: secondID, name: "新设备", rssi: -55)])
+        )
+        bluetooth.send(.devices([]))
+        let unavailable = try #require(
+            store.devicePickerEntries.first { $0.id == secondID }
+        )
+
+        store.selectDevice(unavailable.selection)
+
+        #expect(store.configuration.selectedDeviceID == secondID)
+        #expect(store.selectedDeviceName == "新设备")
+    }
+
+    @Test @MainActor func restartingDiscoveryClearsResultsAndRestartsController() throws {
+        let suiteName = "com.perryfinn.random-thoughts.proximity-restart-picker-tests"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let bluetooth = FakeBluetoothController()
+        let store = ProximityLockStore(
+            defaults: defaults,
+            bluetoothController: bluetooth,
+            systemController: FakeProximitySystemController()
+        )
+        store.start()
+        store.beginDeviceSelection()
+        defer { store.endDeviceSelection() }
+        bluetooth.send(
+            .devices([ProximityDevice(id: UUID(), name: "附近设备", rssi: -45)])
+        )
+
+        store.restartDeviceDiscovery()
+
+        #expect(store.devicePickerEntries.isEmpty)
+        #expect(bluetooth.restartScanningRequests == 1)
+    }
+
+    @Test @MainActor func devicePickerMarksStaleOrPoweredOffSignalUnavailable() {
+        let lastSeenAt = Date(timeIntervalSince1970: 1_000)
+        let entry = ProximityDevicePickerEntry(
+            selection: ProximityDeviceSelection(id: UUID(), reportedName: "手机"),
+            displayName: "手机",
+            rssi: -50,
+            lastSeenAt: lastSeenAt
+        )
+
+        #expect(
+            entry.signal(
+                at: lastSeenAt.addingTimeInterval(5),
+                bluetoothPoweredOn: true
+            ) == .good
+        )
+        #expect(
+            entry.signal(
+                at: lastSeenAt.addingTimeInterval(11),
+                bluetoothPoweredOn: true
+            ) == .unavailable
+        )
+        #expect(
+            entry.signal(at: lastSeenAt, bluetoothPoweredOn: false) == .unavailable
+        )
     }
 
     @Test @MainActor func startChecksButDoesNotPromptForAccessibility() throws {
@@ -221,7 +469,9 @@ struct ProximityLockTests {
         )
         store.start()
         bluetooth.send(.devices([device]))
-        store.selectDevice(id)
+        store.selectDevice(
+            ProximityDeviceSelection(id: id, reportedName: device.name)
+        )
 
         store.renameSelectedDevice(to: "  我的手机  ")
 
@@ -252,7 +502,9 @@ struct ProximityLockTests {
         let device = ProximityDevice(id: id, name: "iPhone 13 Pro", rssi: -48)
         store.start()
         bluetooth.send(.devices([device]))
-        store.selectDevice(id)
+        store.selectDevice(
+            ProximityDeviceSelection(id: id, reportedName: device.name)
+        )
         store.renameSelectedDevice(to: "我的手机")
         bluetooth.send(.devices([]))
 
@@ -365,7 +617,9 @@ struct ProximityLockTests {
         bluetooth.send(.state(.poweredOn))
         bluetooth.send(.presence(isPresent: false, reason: .lost))
         bluetooth.send(.presence(isPresent: true, reason: .close))
-        try? await Task.sleep(for: .milliseconds(650))
+        await waitUntil(timeout: .seconds(2)) {
+            !system.enteredPasswords.isEmpty
+        }
 
         #expect(system.enteredPasswords == ["secret"])
         #expect(system.scriptEvents == ["unlocked:none"])
@@ -402,10 +656,24 @@ struct ProximityLockTests {
 }
 
 @MainActor
+private func waitUntil(
+    timeout: Duration,
+    condition: () -> Bool
+) async {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while !condition(), clock.now < deadline {
+        try? await Task.sleep(for: .milliseconds(25))
+    }
+}
+
+@MainActor
 private final class FakeBluetoothController: ProximityBluetoothControlling {
     var eventHandler: ((ProximityBluetoothEvent) -> Void)?
     var configuration = ProximityConfiguration.default
     var monitoredDeviceID: UUID?
+    var monitoringRequests: [UUID?] = []
+    var restartScanningRequests = 0
 
     func apply(configuration: ProximityConfiguration) {
         self.configuration = configuration
@@ -413,9 +681,11 @@ private final class FakeBluetoothController: ProximityBluetoothControlling {
 
     func startMonitoring(deviceID: UUID?) {
         monitoredDeviceID = deviceID
+        monitoringRequests.append(deviceID)
     }
 
     func startScanning() {}
+    func restartScanning() { restartScanningRequests += 1 }
     func stopScanning() {}
 
     func send(_ event: ProximityBluetoothEvent) {

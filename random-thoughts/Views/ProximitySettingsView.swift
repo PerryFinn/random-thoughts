@@ -6,6 +6,8 @@ struct ProximitySettingsView: View {
     let store: ProximityLockStore
     @State private var aliasEditorPresented = false
     @State private var aliasDraft = ""
+    @State private var devicePickerPresented = false
+    @State private var pendingDevicePickerAction: ProximityDevicePickerAction?
 
     var body: some View {
         Form {
@@ -19,10 +21,6 @@ struct ProximitySettingsView: View {
         .navigationTitle("蓝牙解锁")
         .onAppear {
             store.refreshSystemState()
-            store.startScanning()
-        }
-        .onDisappear {
-            store.stopScanning()
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -45,31 +43,41 @@ struct ProximitySettingsView: View {
         } message: {
             Text("名称仅保存在这台 Mac 上；留空可恢复设备报告的名称。")
         }
+        .sheet(
+            isPresented: $devicePickerPresented,
+            onDismiss: performPendingDevicePickerAction
+        ) {
+            ProximityDevicePickerSheet(store: store) { action in
+                pendingDevicePickerAction = action
+            }
+        }
     }
 
     private var deviceSection: some View {
         Section {
-            Picker("设备", selection: selectedDeviceBinding) {
-                Text("未选择设备").tag(UUID?.none)
+            LabeledContent("当前设备") {
+                HStack(spacing: 8) {
+                    Text(store.selectedDeviceName ?? "未选择设备")
+                        .foregroundStyle(
+                            store.configuration.selectedDeviceID == nil
+                                ? .secondary
+                                : .primary
+                        )
+                        .lineLimit(1)
 
-                if let selectedID = store.configuration.selectedDeviceID,
-                   !store.devices.contains(where: { $0.id == selectedID }) {
-                    Text(store.selectedDeviceName ?? selectedID.uuidString)
-                        .tag(Optional(selectedID))
-                }
-
-                ForEach(store.devices) { device in
-                    HStack {
-                        Text(store.displayName(for: device))
-                        Spacer()
-                        Text("\(device.rssi) dBm")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
+                    Button(store.configuration.selectedDeviceID == nil ? "选择…" : "更换…") {
+                        devicePickerPresented = true
                     }
-                    .tag(Optional(device.id))
+                    .pointerStyle(.link)
+
+                    if store.configuration.selectedDeviceID != nil {
+                        Button("停止监控", role: .destructive) {
+                            store.stopMonitoring()
+                        }
+                        .pointerStyle(.link)
+                    }
                 }
             }
-            .pointerStyle(.link)
 
             if store.configuration.selectedDeviceID != nil {
                 LabeledContent("显示名称") {
@@ -90,30 +98,17 @@ struct ProximitySettingsView: View {
                     .foregroundStyle(statusColor)
             }
 
-            HStack {
-                Button {
-                    store.startScanning()
-                } label: {
-                    Label(
-                        store.isScanning ? "正在扫描" : "重新扫描",
-                        systemImage: "antenna.radiowaves.left.and.right"
-                    )
-                }
-                .disabled(store.isScanning)
-                .pointerStyle(store.isScanning ? .default : .link)
-
-                Button {
-                    store.lockNow()
-                } label: {
-                    Label("立即锁定屏幕", systemImage: "lock.display")
-                }
-                .buttonStyle(.borderedProminent)
-                .pointerStyle(.link)
+            Button {
+                store.lockNow()
+            } label: {
+                Label("立即锁定屏幕", systemImage: "lock.display")
             }
+            .buttonStyle(.borderedProminent)
+            .pointerStyle(.link)
         } header: {
             Text("监控设备")
         } footer: {
-            Text("打开此页面时会持续扫描附近的低功耗蓝牙设备。设备未报告名称时，可选择后为它设置一个仅在本机使用的名称。")
+            Text("点击“选择…”或“更换…”时会扫描附近的低功耗蓝牙设备。设备未报告名称时，可选择后为它设置一个仅在本机使用的名称。")
         }
     }
 
@@ -260,18 +255,23 @@ struct ProximitySettingsView: View {
         }
     }
 
-    private var selectedDeviceBinding: Binding<UUID?> {
-        Binding(
-            get: { store.configuration.selectedDeviceID },
-            set: { store.selectDevice($0) }
-        )
-    }
-
     private var launchAtLoginBinding: Binding<Bool> {
         Binding(
             get: { store.launchAtLoginRequested },
             set: { store.setLaunchAtLogin($0) }
         )
+    }
+
+    private func performPendingDevicePickerAction() {
+        defer { pendingDevicePickerAction = nil }
+        switch pendingDevicePickerAction {
+        case .select(let selection):
+            store.selectDevice(selection)
+        case .stopMonitoring:
+            store.stopMonitoring()
+        case nil:
+            break
+        }
     }
 
     private var errorPresented: Binding<Bool> {

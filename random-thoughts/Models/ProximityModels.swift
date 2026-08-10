@@ -4,6 +4,7 @@ struct ProximityDevice: Identifiable, Hashable, Sendable {
     let id: UUID
     var name: String
     var rssi: Int
+    var lastSeenAt = Date()
 }
 
 enum ProximityBluetoothState: Equatable, Sendable {

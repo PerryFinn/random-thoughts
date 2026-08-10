@@ -25,6 +25,7 @@ final class ProximityLockStore {
     private(set) var launchAtLoginRequested = false
     private(set) var lastError: String?
     private var deviceAliases: [String: String]
+    private var devicePickerState = ProximityDevicePickerState()
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let systemController: ProximitySystemControlling
@@ -76,8 +77,11 @@ final class ProximityLockStore {
     var selectedDeviceName: String? {
         guard let selectedDeviceID = configuration.selectedDeviceID else { return nil }
         return deviceAlias(for: selectedDeviceID)
-            ?? selectedDevice?.name
-            ?? defaults.string(forKey: Keys.selectedDeviceReportedName)
+            ?? selectedDeviceReportedName
+    }
+
+    var devicePickerEntries: [ProximityDevicePickerEntry] {
+        devicePickerState.entries
     }
 
     func displayName(for device: ProximityDevice) -> String {
@@ -182,7 +186,11 @@ final class ProximityLockStore {
             bluetoothController?.startMonitoring(deviceID: configuration.selectedDeviceID)
             latestRSSI = nil
             signalIsActive = false
-            isPresent = true
+            isPresent = configuration.selectedDeviceID != nil
+            if configuration.selectedDeviceID == nil {
+                wakeTask?.cancel()
+                wakeTask = nil
+            }
         }
         if configuration.unlockRSSI == nil {
             cancelPendingUnlock()
@@ -204,19 +212,22 @@ final class ProximityLockStore {
         updateConfiguration(updated)
     }
 
-    func selectDevice(_ deviceID: UUID?) {
+    func selectDevice(_ selection: ProximityDeviceSelection) {
         var updated = configuration
-        updated.selectedDeviceID = deviceID
-        if let device = devices.first(where: { $0.id == deviceID }) {
-            defaults.set(device.name, forKey: Keys.selectedDeviceReportedName)
-        } else if deviceID == nil {
-            defaults.removeObject(forKey: Keys.selectedDeviceReportedName)
-        }
+        updated.selectedDeviceID = selection.id
+        defaults.set(selection.reportedName, forKey: Keys.selectedDeviceReportedName)
         updateConfiguration(updated)
 
-        if deviceID != nil, configuration.unlockRSSI != nil, !hasPassword {
+        if configuration.unlockRSSI != nil, !hasPassword {
             promptForPassword()
         }
+    }
+
+    func stopMonitoring() {
+        var updated = configuration
+        updated.selectedDeviceID = nil
+        defaults.removeObject(forKey: Keys.selectedDeviceReportedName)
+        updateConfiguration(updated)
     }
 
     func renameSelectedDevice(to name: String) {
@@ -230,12 +241,25 @@ final class ProximityLockStore {
         defaults.set(deviceAliases, forKey: Keys.deviceAliases)
     }
 
-    func startScanning() {
+    func beginDeviceSelection() {
+        devicePickerState.reset(
+            currentDevices: devices.map(makeDevicePickerEntry),
+            selectedDevice: selectedDevicePickerEntry
+        )
         isScanning = true
         bluetoothController?.startScanning()
     }
 
-    func stopScanning() {
+    func restartDeviceDiscovery() {
+        devicePickerState.reset(
+            currentDevices: [],
+            selectedDevice: selectedDevicePickerEntry
+        )
+        isScanning = true
+        bluetoothController?.restartScanning()
+    }
+
+    func endDeviceSelection() {
         isScanning = false
         bluetoothController?.stopScanning()
     }
@@ -317,6 +341,12 @@ final class ProximityLockStore {
             if let selectedDevice {
                 defaults.set(selectedDevice.name, forKey: Keys.selectedDeviceReportedName)
             }
+            if isScanning {
+                devicePickerState.merge(
+                    currentDevices: devices.map(makeDevicePickerEntry),
+                    selectedDevice: selectedDevicePickerEntry
+                )
+            }
 
         case .signal(let rssi, let active):
             latestRSSI = rssi
@@ -330,6 +360,38 @@ final class ProximityLockStore {
 
     private func deviceAlias(for id: UUID) -> String? {
         deviceAliases[id.uuidString]
+    }
+
+    private var selectedDeviceReportedName: String? {
+        selectedDevice?.name
+            ?? defaults.string(forKey: Keys.selectedDeviceReportedName)
+    }
+
+    private var selectedDevicePickerEntry: ProximityDevicePickerEntry? {
+        guard let id = configuration.selectedDeviceID,
+              let reportedName = selectedDeviceReportedName else {
+            return nil
+        }
+        if let selectedDevice {
+            return makeDevicePickerEntry(selectedDevice)
+        }
+        return ProximityDevicePickerEntry(
+            selection: ProximityDeviceSelection(id: id, reportedName: reportedName),
+            displayName: deviceAlias(for: id) ?? reportedName,
+            rssi: nil,
+            lastSeenAt: nil
+        )
+    }
+
+    private func makeDevicePickerEntry(
+        _ device: ProximityDevice
+    ) -> ProximityDevicePickerEntry {
+        ProximityDevicePickerEntry(
+            selection: ProximityDeviceSelection(id: device.id, reportedName: device.name),
+            displayName: displayName(for: device),
+            rssi: device.rssi,
+            lastSeenAt: device.lastSeenAt
+        )
     }
 
     private func handlePresence(
@@ -496,7 +558,9 @@ final class ProximityLockStore {
             guard let self, !Task.isCancelled else { return }
             let actions = ProximityScreenUnlockPolicy.actions(
                 elapsedSinceAutomaticUnlock: Date().timeIntervalSince(self.unlockedAt),
-                automaticUnlockEnabled: self.configuration.unlockRSSI != nil
+                automaticUnlockEnabled: ProximityAutomaticUnlockPolicy.isEnabled(
+                    configuration: self.configuration
+                )
             )
             if actions.shouldRunIntrudedScript {
                 self.systemController.runEventScript(
@@ -524,11 +588,13 @@ final class ProximityLockStore {
     }
 
     private var canAttemptAutomaticUnlock: Bool {
-        !manualLock
-            && isPresent
-            && configuration.unlockRSSI != nil
-            && !systemSleeping
-            && !displaySleeping
+        ProximityAutomaticUnlockPolicy.shouldAttempt(
+            configuration: configuration,
+            manualLock: manualLock,
+            isPresent: isPresent,
+            systemSleeping: systemSleeping,
+            displaySleeping: displaySleeping
+        )
     }
 
     private func cancelPendingUnlock() {

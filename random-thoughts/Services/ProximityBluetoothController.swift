@@ -9,6 +9,7 @@ protocol ProximityBluetoothControlling: AnyObject {
     func apply(configuration: ProximityConfiguration)
     func startMonitoring(deviceID: UUID?)
     func startScanning()
+    func restartScanning()
     func stopScanning()
 }
 
@@ -87,6 +88,22 @@ final class ProximityBluetoothController: NSObject, ProximityBluetoothControllin
         scanMode = true
         reconcileScanning()
         publishDevices()
+    }
+
+    func restartScanning() {
+        scanMode = true
+        for device in discoveredDevices.values
+        where device.peripheral !== monitoredPeripheral {
+            centralManager.cancelPeripheralConnection(device.peripheral)
+        }
+        discoveredDevices.removeAll(keepingCapacity: true)
+        publishDevices()
+
+        guard centralManager.state == .poweredOn else { return }
+        if centralManager.isScanning {
+            centralManager.stopScan()
+        }
+        reconcileScanning()
     }
 
     func stopScanning() {
@@ -463,7 +480,8 @@ private final class InternalDevice {
         ProximityDevice(
             id: id,
             name: displayName,
-            rssi: rssi
+            rssi: rssi,
+            lastSeenAt: lastSeenAt
         )
     }
 
