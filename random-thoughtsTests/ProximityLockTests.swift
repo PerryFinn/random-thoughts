@@ -214,6 +214,60 @@ struct ProximityLockTests {
         #expect(store.devicePickerEntries.map(\.rssi) == [-80, -35, -45])
     }
 
+    @Test func devicePickerCollapsesDuplicateAdvertisementsWithTheSameName() {
+        let firstID = UUID()
+        let duplicateID = UUID()
+        var state = ProximityDevicePickerState()
+
+        state.reset(
+            currentDevices: [
+                pickerEntry(id: firstID, name: "鹏飞的神奇海螺 19914569117"),
+                pickerEntry(id: duplicateID, name: "鹏飞的神奇海螺 19914569117")
+            ],
+            selectedDevice: nil
+        )
+
+        #expect(state.entries.map(\.id) == [firstID])
+    }
+
+    @Test func devicePickerKeepsOneLogicalRowAsDuplicateIdentifiersChange() {
+        let firstID = UUID()
+        let duplicateID = UUID()
+        var state = ProximityDevicePickerState()
+
+        state.reset(
+            currentDevices: [pickerEntry(id: firstID, name: "同一台手机")],
+            selectedDevice: nil
+        )
+        state.merge(
+            currentDevices: [
+                pickerEntry(id: duplicateID, name: "同一台手机"),
+                pickerEntry(id: firstID, name: "同一台手机")
+            ],
+            selectedDevice: nil
+        )
+        #expect(state.entries.map(\.id) == [firstID])
+
+        state.merge(
+            currentDevices: [pickerEntry(id: duplicateID, name: "同一台手机")],
+            selectedDevice: nil
+        )
+        #expect(state.entries.map(\.id) == [duplicateID])
+    }
+
+    @Test func devicePickerPrefersSelectedIdentifierWhenNamesMatch() {
+        let selected = pickerEntry(id: UUID(), name: "同一台手机")
+        let duplicate = pickerEntry(id: UUID(), name: "同一台手机")
+        var state = ProximityDevicePickerState()
+
+        state.reset(
+            currentDevices: [duplicate, selected],
+            selectedDevice: selected
+        )
+
+        #expect(state.entries.map(\.id) == [selected.id])
+    }
+
     @Test @MainActor func devicePickerKeepsMissingDeviceAsTemporarilyUnavailable() throws {
         let suiteName = "com.perryfinn.random-thoughts.proximity-picker-offline-tests"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -285,6 +339,40 @@ struct ProximityLockTests {
 
     @Test @MainActor func devicePickerKeepsConfiguredLayoutSize() {
         #expect(ProximityDevicePickerSheet.windowSize == CGSize(width: 500, height: 420))
+    }
+
+    @Test func devicePickerSearchMatchesNamesAndIdentifier() throws {
+        let id = try #require(UUID(uuidString: "A1B2C3D4-1234-5678-90AB-CDEF12345678"))
+        let entry = ProximityDevicePickerEntry(
+            selection: ProximityDeviceSelection(
+                id: id,
+                reportedName: "iPhone 15 Pro"
+            ),
+            displayName: "Perry 的手机",
+            rssi: -50,
+            lastSeenAt: Date()
+        )
+
+        #expect(ProximityDevicePickerSearch("  手机 ").filter([entry]) == [entry])
+        #expect(ProximityDevicePickerSearch("iphone 15").filter([entry]) == [entry])
+        #expect(ProximityDevicePickerSearch("a1b2c3d4").filter([entry]) == [entry])
+        #expect(ProximityDevicePickerSearch("   ").filter([entry]) == [entry])
+        #expect(ProximityDevicePickerSearch("iPad").filter([entry]).isEmpty)
+    }
+
+    @Test func devicePickerSearchPreservesDiscoveryOrder() {
+        let firstID = UUID()
+        let secondID = UUID()
+        let thirdID = UUID()
+        let entries = [
+            pickerEntry(id: firstID, name: "Perry 的手机"),
+            pickerEntry(id: secondID, name: "蓝牙耳机"),
+            pickerEntry(id: thirdID, name: "备用手机")
+        ]
+
+        let matches = ProximityDevicePickerSearch("手机").filter(entries)
+
+        #expect(matches.map(\.id) == [firstID, thirdID])
     }
 
     @Test func automaticUnlockRequiresSelectedDevice() {
@@ -653,6 +741,15 @@ struct ProximityLockTests {
         #expect(system.enteredPasswords.isEmpty)
         #expect(system.scriptEvents.isEmpty)
     }
+}
+
+private func pickerEntry(id: UUID, name: String) -> ProximityDevicePickerEntry {
+    ProximityDevicePickerEntry(
+        selection: ProximityDeviceSelection(id: id, reportedName: name),
+        displayName: name,
+        rssi: nil,
+        lastSeenAt: nil
+    )
 }
 
 @MainActor

@@ -12,6 +12,8 @@ struct ProximityDevicePickerSheet: View {
     let onCommit: (ProximityDevicePickerAction) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+    @FocusState private var searchFieldFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,6 +24,13 @@ struct ProximityDevicePickerSheet: View {
             controls
         }
         .frame(width: Self.windowSize.width, height: Self.windowSize.height)
+        .background(alignment: .topLeading) {
+            ProximityDevicePickerFocusBridge {
+                searchFieldFocused = true
+            }
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        }
         .onAppear {
             store.beginDeviceSelection()
         }
@@ -37,9 +46,49 @@ struct ProximityDevicePickerSheet: View {
             Text("扫描期间设备顺序保持不变，新发现的设备会添加到列表末尾。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+
+            searchField
+                .padding(.top, 8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+
+            TextField("搜索设备名称或标识符", text: $searchText)
+                .textFieldStyle(.plain)
+                .focused($searchFieldFocused)
+                .accessibilityLabel("搜索设备")
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .pointerStyle(.link)
+                .help("清除搜索")
+                .accessibilityLabel("清除搜索")
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var deviceSearch: ProximityDevicePickerSearch {
+        ProximityDevicePickerSearch(searchText)
+    }
+
+    private var filteredEntries: [ProximityDevicePickerEntry] {
+        deviceSearch.filter(store.devicePickerEntries)
     }
 
     @ViewBuilder
@@ -51,9 +100,21 @@ struct ProximityDevicePickerSheet: View {
                 Text("请确认设备在附近且蓝牙可被发现。")
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if filteredEntries.isEmpty {
+            ContentUnavailableView {
+                Label("未找到设备", systemImage: "magnifyingglass")
+            } description: {
+                Text("没有与“\(deviceSearch.query)”匹配的设备。")
+            } actions: {
+                Button("清除搜索") {
+                    searchText = ""
+                }
+                .pointerStyle(.link)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             TimelineView(.periodic(from: .now, by: 1)) { context in
-                List(store.devicePickerEntries) { entry in
+                List(filteredEntries) { entry in
                     deviceButton(entry, at: context.date)
                 }
                 .listStyle(.inset)
