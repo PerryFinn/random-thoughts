@@ -9,6 +9,8 @@ struct MenuBarPanel: View {
     let proximityStore: ProximityLockStore?
     @Environment(\.openSettings) private var openSettings
     @State private var selectedPointID: IntelligencePoint.ID?
+    @State private var roulettePointID: IntelligencePoint.ID?
+    @State private var rouletteRollCount = 0
 
     init(
         store: IntelligenceStore,
@@ -46,6 +48,13 @@ struct MenuBarPanel: View {
             }
             self.selectedPointID = nil
         }
+        .onChange(of: store.selectedPoints.map(\.id)) { _, selectedPointIDs in
+            guard let roulettePointID,
+                  !selectedPointIDs.contains(roulettePointID) else {
+                return
+            }
+            self.roulettePointID = nil
+        }
         .task {
             AppTelemetry.menuBar.debug("Menu bar panel presented")
         }
@@ -54,6 +63,14 @@ struct MenuBarPanel: View {
     private var overview: some View {
         VStack(spacing: 12) {
             header
+
+            if let roulettePoint {
+                ModelRouletteCard(point: roulettePoint) {
+                    showDetail(for: roulettePoint)
+                }
+                .id(rouletteRollCount)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
 
             if store.points.isEmpty {
                 loadingState
@@ -106,6 +123,11 @@ struct MenuBarPanel: View {
         return store.points.first { $0.id == selectedPointID }
     }
 
+    private var roulettePoint: IntelligencePoint? {
+        guard let roulettePointID else { return nil }
+        return store.selectedPoints.first { $0.id == roulettePointID }
+    }
+
     private func showDetail(for point: IntelligencePoint) {
         AppTelemetry.menuBar.info(
             "Model detail opened; pointID=\(point.id, privacy: .private(mask: .hash))"
@@ -116,6 +138,23 @@ struct MenuBarPanel: View {
     private func showOverview() {
         AppTelemetry.menuBar.info("Model detail closed")
         selectedPointID = nil
+    }
+
+    private func rollRoulette() {
+        guard let point = ModelRoulette.pick(
+            from: store.selectedPoints,
+            excluding: roulettePointID
+        ) else {
+            return
+        }
+
+        AppTelemetry.menuBar.info(
+            "Model roulette rolled; pointID=\(point.id, privacy: .private(mask: .hash))"
+        )
+        withAnimation(.bouncy(duration: 0.45)) {
+            roulettePointID = point.id
+            rouletteRollCount += 1
+        }
     }
 
     private var header: some View {
@@ -140,6 +179,19 @@ struct MenuBarPanel: View {
             }
 
             Spacer()
+
+            if !store.selectedPoints.isEmpty {
+                Button(action: rollRoulette) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "die.face.5.fill")
+                            .symbolEffect(.bounce, value: rouletteRollCount)
+                        Text(roulettePoint == nil ? "替我选" : "再摇一次")
+                    }
+                }
+                .buttonStyle(.borderless)
+                .pointerStyle(.link)
+                .help("从当前展示的模型中随机挑一个")
+            }
         }
     }
 

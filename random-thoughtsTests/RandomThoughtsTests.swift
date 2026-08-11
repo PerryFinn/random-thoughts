@@ -177,6 +177,37 @@ struct RandomThoughtsTests {
         #expect(hostingView.fittingSize.height == IntelligenceCard.minimumHeight)
     }
 
+    @Test func rouletteAvoidsRepeatingThePreviousModel() throws {
+        let points = [
+            Self.makePoint(model: "gpt-5.6-sol", effort: "high"),
+            Self.makePoint(model: "gpt-5.6-sol", effort: "max"),
+            Self.makePoint(model: "gpt-5.6-terra", effort: "medium")
+        ]
+
+        let picked = try #require(
+            ModelRoulette.pick(
+                from: points,
+                excluding: points[0].id,
+                randomIndex: { _ in 0 }
+            )
+        )
+
+        #expect(picked == points[1])
+    }
+
+    @Test func rouletteHandlesEmptyAndSingleModelSelections() throws {
+        let onlyPoint = Self.makePoint(model: "gpt-5.6-sol", effort: "max")
+
+        #expect(ModelRoulette.pick(from: []) == nil)
+        #expect(
+            ModelRoulette.pick(
+                from: [onlyPoint],
+                excluding: onlyPoint.id,
+                randomIndex: { _ in 0 }
+            ) == onlyPoint
+        )
+    }
+
     @Test @MainActor func modelDetailOccupiesFullMenuBarPanel() throws {
         let suiteName = "com.perryfinn.random-thoughts.detail-layout-tests"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -318,4 +349,16 @@ struct RandomThoughtsTests {
         }
         """.utf8
     )
+
+    private static func makePoint(model: String, effort: String) -> IntelligencePoint {
+        IntelligencePoint(
+            model: model,
+            effort: effort,
+            iq: 90,
+            averagePriceUSD: nil,
+            averageMinutes: nil,
+            runs24h: nil,
+            latestGradedAt: nil
+        )
+    }
 }
