@@ -13,6 +13,39 @@ import Testing
 
 struct RandomThoughtsTests {
 
+    @Test func recommendsModelsForDifferentGoals() throws {
+        let points = [
+            Self.point(model: "balanced", iq: 90, price: 3, minutes: 10),
+            Self.point(model: "genius", iq: 100, price: 10, minutes: 30),
+            Self.point(model: "budget", iq: 70, price: 1, minutes: 20),
+            Self.point(model: "sprinter", iq: 75, price: 4, minutes: 2)
+        ]
+
+        #expect(ModelRecommender.recommend(from: points, strategy: .sweetSpot)?.point.model == "balanced")
+        #expect(ModelRecommender.recommend(from: points, strategy: .smartest)?.point.model == "genius")
+        #expect(ModelRecommender.recommend(from: points, strategy: .cheapest)?.point.model == "budget")
+        #expect(ModelRecommender.recommend(from: points, strategy: .fastest)?.point.model == "sprinter")
+    }
+
+    @Test func recommendationSkipsMissingMetricsAndFallsBackToIQ() throws {
+        let incomplete = Self.point(model: "incomplete", iq: 120, price: nil, minutes: nil)
+        let complete = Self.point(model: "complete", iq: 80, price: 2, minutes: 8)
+
+        #expect(
+            ModelRecommender.recommend(
+                from: [incomplete, complete],
+                strategy: .cheapest
+            )?.point.model == "complete"
+        )
+        #expect(
+            ModelRecommender.recommend(
+                from: [incomplete],
+                strategy: .sweetSpot
+            )?.point.model == "incomplete"
+        )
+        #expect(ModelRecommender.recommend(from: [], strategy: .smartest) == nil)
+    }
+
     @Test @MainActor func decodesCodexRadarPoint() throws {
         let response = try JSONDecoder().decode(IntelligenceResponse.self, from: Self.sampleResponseData)
         let point = try #require(response.points.first)
@@ -29,6 +62,23 @@ struct RandomThoughtsTests {
         #expect(point.durationSamples == 112)
         #expect(point.incompleteCostSamples == 2)
         #expect(response.history?.count == 2)
+    }
+
+    private static func point(
+        model: String,
+        iq: Double,
+        price: Double?,
+        minutes: Double?
+    ) -> IntelligencePoint {
+        IntelligencePoint(
+            model: model,
+            effort: "medium",
+            iq: iq,
+            averagePriceUSD: price,
+            averageMinutes: minutes,
+            runs24h: nil,
+            latestGradedAt: nil
+        )
     }
 
     @Test @MainActor func derivesTrendComparisonAndConfidenceWarning() throws {

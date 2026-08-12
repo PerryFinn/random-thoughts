@@ -9,6 +9,7 @@ struct MenuBarPanel: View {
     let proximityStore: ProximityLockStore?
     @Environment(\.openSettings) private var openSettings
     @State private var selectedPointID: IntelligencePoint.ID?
+    @State private var recommendation: ModelRecommendation?
 
     init(
         store: IntelligenceStore,
@@ -29,6 +30,7 @@ struct MenuBarPanel: View {
                     iqHistory: store.iqHistory(for: selectedPoint),
                     confidenceWarning: store.confidenceWarning(for: selectedPoint),
                     sourceUpdatedAt: store.sourceUpdatedAt,
+                    recommendation: recommendation,
                     onBack: showOverview
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -45,6 +47,7 @@ struct MenuBarPanel: View {
                 return
             }
             self.selectedPointID = nil
+            recommendation = nil
         }
         .task {
             AppTelemetry.menuBar.debug("Menu bar panel presented")
@@ -110,12 +113,29 @@ struct MenuBarPanel: View {
         AppTelemetry.menuBar.info(
             "Model detail opened; pointID=\(point.id, privacy: .private(mask: .hash))"
         )
+        recommendation = nil
         selectedPointID = point.id
     }
 
     private func showOverview() {
         AppTelemetry.menuBar.info("Model detail closed")
         selectedPointID = nil
+        recommendation = nil
+    }
+
+    private func recommend(_ strategy: ModelRecommendationStrategy) {
+        guard let recommendation = ModelRecommender.recommend(
+            from: store.selectedPoints,
+            strategy: strategy
+        ) else {
+            return
+        }
+
+        AppTelemetry.menuBar.info(
+            "Model recommendation selected; strategy=\(strategy.rawValue, privacy: .public); pointID=\(recommendation.point.id, privacy: .private(mask: .hash))"
+        )
+        self.recommendation = recommendation
+        selectedPointID = recommendation.point.id
     }
 
     private var header: some View {
@@ -140,6 +160,25 @@ struct MenuBarPanel: View {
             }
 
             Spacer()
+
+            if !store.selectedPoints.isEmpty {
+                Menu {
+                    ForEach(ModelRecommendationStrategy.allCases) { strategy in
+                        Button {
+                            recommend(strategy)
+                        } label: {
+                            Label(strategy.title, systemImage: strategy.systemImage)
+                        }
+                        .help(strategy.help)
+                    }
+                } label: {
+                    Label("帮我拍板", systemImage: "wand.and.sparkles")
+                }
+                .menuStyle(.button)
+                .buttonStyle(.borderless)
+                .pointerStyle(.link)
+                .help("按你的目标，从当前展示的模型中推荐一档")
+            }
         }
     }
 

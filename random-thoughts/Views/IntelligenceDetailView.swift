@@ -8,6 +8,7 @@ struct IntelligenceDetailView: View {
     let iqHistory: [IntelligenceIQHistorySample]
     let confidenceWarning: IntelligenceConfidenceWarning?
     let sourceUpdatedAt: Date?
+    let recommendation: ModelRecommendation?
     let onBack: () -> Void
 
     private let iqGradient = LinearGradient(
@@ -26,6 +27,11 @@ struct IntelligenceDetailView: View {
             ScrollView(.vertical) {
                 GlassEffectContainer(spacing: 12) {
                     VStack(spacing: 12) {
+                        if let recommendation,
+                           recommendation.point.id == point.id {
+                            recommendationCard(recommendation)
+                        }
+
                         hero
                         primaryMetrics
                         IQHistoryChart(samples: iqHistory)
@@ -112,6 +118,35 @@ struct IntelligenceDetailView: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        .accessibilityElement(children: .combine)
+    }
+
+    private func recommendationCard(_ recommendation: ModelRecommendation) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: recommendation.strategy.systemImage)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.indigo)
+                .symbolEffect(.bounce, value: recommendation.strategy)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("帮你选了「\(recommendation.strategy.title)」")
+                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
+
+                Text(recommendation.reason)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.indigo.opacity(0.1), in: .rect(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(.indigo.opacity(0.2), lineWidth: 0.5)
+        }
         .accessibilityElement(children: .combine)
     }
 
