@@ -171,6 +171,10 @@ struct ProximityDevicePickerSheet: View {
                         .fill(signal.isAvailable ? Color.green : Color.secondary)
                         .frame(width: 6, height: 6)
                     Text(signal.description)
+                    if signal.isAvailable, let rssi = entry.rssi {
+                        Text("\(rssi) dBm")
+                            .monospacedDigit()
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
