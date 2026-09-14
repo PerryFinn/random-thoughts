@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self' data:; form-action 'none'; base-uri 'none'">
+  <title>随想 · 设置窗口决策原型</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="prototype-intro">
+    <div><span class="eyebrow">THROWAWAY PROTOTYPE · 方案已确认</span><h1>设置，应该怎样组织？</h1></div>
+    <p>比较入口、配置编辑与操作反馈。虚构数据仅在内存中；不联网、不访问 Keychain，复制与删除也只做模拟。<br>窗口内容按现有 860 × 620 展示；原型控件在窗口外。</p>
+  </header>
+  <div class="workbench">
+    <section class="window" aria-label="随想设置窗口原型">
+      <header class="titlebar"><div class="traffic"><button type="button" id="close-window" aria-label="模拟关闭设置窗口">×</button><span></span><span></span></div><strong>随想设置</strong><span id="window-meta">本机设置</span></header>
+      <div id="app" class="window-body"></div>
+      <div id="notice" class="notice" role="status" aria-live="polite"></div>
+    </section>
+    <aside class="lab" aria-label="原型演示工具">
+      <h2>演示场景</h2><p>切换场景会重置虚构数据。</p>
+      <label for="scenario">起始状态</label>
+      <select id="scenario">
+        <option value="first">首次配置</option>
+        <option value="ready">已校验，可生成</option>
+        <option value="stale">当前配置需要重新校验</option>
+        <option value="http">使用明文 HTTP</option>
+        <option value="locked">Keychain 暂不可读</option>
+        <option value="drafts">跨时区草稿</option>
+        <option value="source">Codex 数据源不可用</option>
+      </select>
+      <label for="test-result">下一次测试结果</label>
+      <select id="test-result"><option value="pass">基础成功 · 可选能力支持</option><option value="optional">基础成功 · 能力不支持 / 未知</option><option value="temporary">临时故障 · 未完成</option><option value="fail">明确拒绝 · 校验失败</option><option value="store">拒绝存储控制</option></select>
+      <label class="checkbox"><input id="hold-test" type="checkbox"> 保持测试中，便于体验取消</label>
+      <label class="checkbox"><input id="key-failure" type="checkbox"> 模拟 Keychain 写入 / 删除失败</label>
+      <button type="button" data-action="mac-change">模拟 Mac 时区变化</button>
+      <button type="button" data-action="toggle-keychain">切换 Keychain 可读状态</button>
+      <button type="button" data-action="late-result">模拟清空后的迟到生成结果</button>
+      <details open><summary>查看相关状态</summary><dl id="state"></dl></details>
+      <p class="lab-note">原型与共享理解已确认，完整决议见决策票。回看天数上限与完整失败恢复策略由后续票决定。</p>
+      <p id="pending-decisions" class="pending">已确认 B 日报内分组、统一保存与一次删除确认。</p>
+    </aside>
+  </div>
+  <footer class="prototype-switcher" aria-label="原型方案切换">
+    <button type="button" data-action="previous-variant" aria-label="上一个方案">←</button>
+    <button type="button" data-variant="A">A · 独立入口</button>
+    <button type="button" data-variant="B">B · 日报内分组（已选）</button>
+    <button type="button" data-variant="C">C · 概览与详情</button>
+    <button type="button" data-action="next-variant" aria-label="下一个方案">→</button>
+  </footer>
+  <dialog id="dialog" aria-labelledby="dialog-title" aria-describedby="dialog-description"></dialog>
+</body>
+</html>
