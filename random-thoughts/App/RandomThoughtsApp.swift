@@ -8,7 +8,12 @@ struct RandomThoughtsApp: App {
     @State private var proximityStore: ProximityLockStore
 
     init() {
-        let store = IntelligenceStore()
+        let store = IntelligenceStore(
+            service: IntelligenceService(session: .shared),
+            defaults: .standard,
+            now: { Date() },
+            sleep: { try await Task.sleep(for: .seconds($0)) }
+        )
         let proximityStore = ProximityLockStore()
         _store = State(initialValue: store)
         _proximityStore = State(initialValue: proximityStore)

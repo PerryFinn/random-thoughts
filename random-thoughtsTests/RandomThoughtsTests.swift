@@ -38,7 +38,7 @@ struct RandomThoughtsTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(Self.sampleResponseData, forKey: "cachedIntelligenceResponse")
 
-        let store = IntelligenceStore(defaults: defaults)
+        let store = Self.makeStore(defaults: defaults)
         let maxPoint = try #require(
             store.points.first { $0.model == "gpt-5.6-sol" && $0.effort == "max" }
         )
@@ -72,7 +72,7 @@ struct RandomThoughtsTests {
             durationSamples: 17,
             incompleteCostSamples: 2
         )
-        let store = IntelligenceStore(defaults: defaults)
+        let store = Self.makeStore(defaults: defaults)
 
         #expect(store.confidenceWarning(for: point) == .lowSample(16))
     }
@@ -96,7 +96,7 @@ struct RandomThoughtsTests {
             durationSamples: 112,
             incompleteCostSamples: 0
         )
-        let store = IntelligenceStore(defaults: defaults)
+        let store = Self.makeStore(defaults: defaults)
 
         #expect(
             store.confidenceWarning(for: point)
@@ -128,7 +128,7 @@ struct RandomThoughtsTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(Self.sampleResponseData, forKey: "cachedIntelligenceResponse")
 
-        let store = IntelligenceStore(defaults: defaults)
+        let store = Self.makeStore(defaults: defaults)
         let point = try #require(
             store.points.first { $0.model == "gpt-5.6-sol" && $0.effort == "max" }
         )
@@ -147,7 +147,7 @@ struct RandomThoughtsTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(Self.sampleResponseData, forKey: "cachedIntelligenceResponse")
 
-        let store = IntelligenceStore(defaults: defaults)
+        let store = Self.makeStore(defaults: defaults)
         let hostingView = NSHostingView(rootView: MenuBarPanel(store: store))
         let fittingSize = hostingView.fittingSize
 
@@ -163,7 +163,7 @@ struct RandomThoughtsTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(Self.sampleResponseData, forKey: "cachedIntelligenceResponse")
 
-        let store = IntelligenceStore(defaults: defaults)
+        let store = Self.makeStore(defaults: defaults)
         let point = try #require(store.selectedPoints.first)
         let card = IntelligenceCard(
             point: point,
@@ -184,7 +184,7 @@ struct RandomThoughtsTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(Self.sampleResponseData, forKey: "cachedIntelligenceResponse")
 
-        let store = IntelligenceStore(defaults: defaults)
+        let store = Self.makeStore(defaults: defaults)
         let point = try #require(store.selectedPoints.first)
         let hostingView = NSHostingView(
             rootView: MenuBarPanel(store: store, selectedPointID: point.id)
@@ -214,7 +214,7 @@ struct RandomThoughtsTests {
         let response = IntelligenceResponse(sourceUpdatedAt: nil, points: points)
         defaults.set(try JSONEncoder().encode(response), forKey: "cachedIntelligenceResponse")
 
-        let store = IntelligenceStore(defaults: defaults)
+        let store = Self.makeStore(defaults: defaults)
         store.selectAll()
 
         #expect(store.selectedPoints.count == IntelligenceStore.selectionLimit)
@@ -259,6 +259,18 @@ struct RandomThoughtsTests {
 
         #expect(window.isVisible)
         #expect(window.isKeyWindow)
+    }
+
+    @MainActor
+    private static func makeStore(defaults: UserDefaults) -> IntelligenceStore {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RejectingIntelligenceProtocol.self]
+        return IntelligenceStore(
+            service: IntelligenceService(session: URLSession(configuration: configuration)),
+            defaults: defaults,
+            now: { Date(timeIntervalSince1970: 0) },
+            sleep: { _ in throw CancellationError() }
+        )
     }
 
     private static let sampleResponseData = Data(
@@ -318,4 +330,13 @@ struct RandomThoughtsTests {
         }
         """.utf8
     )
+}
+
+private final class RejectingIntelligenceProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
+    }
+    override func stopLoading() {}
 }

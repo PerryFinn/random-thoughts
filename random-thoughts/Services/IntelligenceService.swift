@@ -1,21 +1,27 @@
 import Foundation
 
 struct IntelligenceService: Sendable {
-    static let endpoint = URL(
+    nonisolated static let endpoint = URL(
         string: "https://codexradar.com/data/intelligence-efficiency.json?v=20260804-activity24h"
     )!
 
-    nonisolated init() {}
+    private let session: URLSession
+    private let endpoint: URL
 
-    func fetch() async throws -> IntelligenceResponse {
+    nonisolated init(session: URLSession, endpoint: URL = Self.endpoint) {
+        self.session = session
+        self.endpoint = endpoint
+    }
+
+    nonisolated func fetch() async throws -> IntelligenceResponse {
         var request = URLRequest(
-            url: Self.endpoint,
+            url: endpoint,
             cachePolicy: .reloadIgnoringLocalCacheData,
             timeoutInterval: 30
         )
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse,
               (200..<300).contains(httpResponse.statusCode) else {
             throw IntelligenceServiceError.invalidResponse
