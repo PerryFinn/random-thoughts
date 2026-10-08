@@ -18,6 +18,8 @@ final class IntelligenceStore {
 
     @ObservationIgnored private let service: IntelligenceService
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let now: @MainActor @Sendable () -> Date
+    @ObservationIgnored private let sleep: @MainActor @Sendable (TimeInterval) async throws -> Void
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var hasSavedSelection: Bool
 
@@ -28,11 +30,15 @@ final class IntelligenceStore {
     }
 
     init(
-        service: IntelligenceService = IntelligenceService(),
-        defaults: UserDefaults = .standard
+        service: IntelligenceService,
+        defaults: UserDefaults,
+        now: @escaping @MainActor @Sendable () -> Date,
+        sleep: @escaping @MainActor @Sendable (TimeInterval) async throws -> Void
     ) {
         self.service = service
         self.defaults = defaults
+        self.now = now
+        self.sleep = sleep
 
         if let savedIDs = defaults.array(forKey: Keys.selectedPointIDs) as? [String] {
             selectedPointIDs = Set(savedIDs)
@@ -229,12 +235,17 @@ final class IntelligenceStore {
                 await self.refresh()
 
                 do {
-                    try await Task.sleep(for: .seconds(Self.refreshInterval))
+                    try await sleep(Self.refreshInterval)
                 } catch {
                     return
                 }
             }
         }
+    }
+
+    func stopUpdating() {
+        refreshTask?.cancel()
+        refreshTask = nil
     }
 
     func refresh() async {
@@ -250,7 +261,7 @@ final class IntelligenceStore {
         do {
             let response = try await service.fetch()
             apply(response)
-            lastRefreshAt = Date()
+            lastRefreshAt = now()
             errorMessage = nil
 
             if let encoded = try? JSONEncoder().encode(response) {

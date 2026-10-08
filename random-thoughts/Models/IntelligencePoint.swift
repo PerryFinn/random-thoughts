@@ -1,6 +1,6 @@
 import Foundation
 
-struct IntelligencePoint: Codable, Identifiable, Hashable, Sendable {
+nonisolated struct IntelligencePoint: Codable, Identifiable, Hashable, Sendable {
     let model: String
     let effort: String
     let iq: Double
@@ -79,7 +79,7 @@ struct IntelligencePoint: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
-struct IntelligenceResponse: Codable, Sendable {
+nonisolated struct IntelligenceResponse: Codable, Sendable {
     let sourceUpdatedAt: String?
     let points: [IntelligencePoint]
     let history: [IntelligenceHistorySnapshot]?
@@ -101,32 +101,32 @@ struct IntelligenceResponse: Codable, Sendable {
     }
 }
 
-struct IntelligenceHistorySnapshot: Codable, Sendable {
+nonisolated struct IntelligenceHistorySnapshot: Codable, Sendable {
     let at: String
     let points: [IntelligenceHistoryPoint]
 }
 
-struct IntelligenceHistoryPoint: Codable, Sendable {
+nonisolated struct IntelligenceHistoryPoint: Codable, Sendable {
     let model: String
     let effort: String
     let iq: Double
 }
 
-struct IntelligenceIQHistorySample: Identifiable, Equatable, Sendable {
+nonisolated struct IntelligenceIQHistorySample: Identifiable, Equatable, Sendable {
     let at: Date
     let iq: Double
 
     var id: Date { at }
 }
 
-struct IntelligencePointComparison: Equatable, Sendable {
+nonisolated struct IntelligencePointComparison: Equatable, Sendable {
     let baselineEffort: String
     let iqDelta: Double
     let priceDeltaUSD: Double?
     let minutesDelta: Double?
 }
 
-enum IntelligenceConfidenceWarning: Equatable, Sendable {
+nonisolated enum IntelligenceConfidenceWarning: Equatable, Sendable {
     case lowSample(Int)
     case lowCoverage(metric: String, available: Int, total: Int)
     case incompleteCost(Int)
