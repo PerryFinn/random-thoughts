@@ -148,7 +148,7 @@ struct RandomThoughtsTests {
         defaults.set(Self.sampleResponseData, forKey: "cachedIntelligenceResponse")
 
         let store = Self.makeStore(defaults: defaults)
-        let hostingView = NSHostingView(rootView: MenuBarPanel(store: store))
+        let hostingView = NSHostingView(rootView: MenuBarPanel(store: store, flow: Self.makeReportFlow()))
         let fittingSize = hostingView.fittingSize
 
         #expect(store.selectedPoints.count == 1)
@@ -187,7 +187,7 @@ struct RandomThoughtsTests {
         let store = Self.makeStore(defaults: defaults)
         let point = try #require(store.selectedPoints.first)
         let hostingView = NSHostingView(
-            rootView: MenuBarPanel(store: store, selectedPointID: point.id)
+            rootView: MenuBarPanel(store: store, flow: Self.makeReportFlow(), selectedPointID: point.id)
         )
 
         #expect(hostingView.fittingSize.width == MenuBarPanel.panelWidth)
@@ -239,26 +239,19 @@ struct RandomThoughtsTests {
         let timeZone = try #require(TimeZone(secondsFromGMT: 8 * 60 * 60))
 
         #expect(
-            SettingsView.formatSourceUpdatedAt(date, timeZone: timeZone)
+            IntelligenceSettingsView.formatSourceUpdatedAt(date, timeZone: timeZone)
                 == "2026-09-08 13:04"
         )
     }
 
-    @Test @MainActor func settingsPresenterMakesTitledWindowKey() async {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 520),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+    @MainActor
+    private static func makeReportFlow() -> DailyReportFlow {
+        DailyReportFlow(
+            now: { Date(timeIntervalSince1970: 0) },
+            timeZone: TimeZone(secondsFromGMT: 0)!,
+            performWindowEffect: { _ in },
+            recordWindowMode: { _ in }
         )
-        window.title = "Settings Presenter Test"
-        defer { window.close() }
-
-        SettingsWindowPresenter.bringToFront()
-        try? await Task.sleep(for: .milliseconds(250))
-
-        #expect(window.isVisible)
-        #expect(window.isKeyWindow)
     }
 
     @MainActor

@@ -529,13 +529,11 @@ final class ProximityLockStore {
         case .systemSleep:
             cancelPendingUnlock()
             systemSleeping = true
-            NSApplication.shared.setActivationPolicy(.regular)
 
         case .systemWake:
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(1))
                 guard let self, !Task.isCancelled else { return }
-                NSApplication.shared.setActivationPolicy(.accessory)
                 self.systemSleeping = false
                 self.tryUnlockScreen()
             }

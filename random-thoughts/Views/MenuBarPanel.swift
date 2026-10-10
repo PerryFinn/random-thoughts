@@ -6,16 +6,18 @@ struct MenuBarPanel: View {
     static let panelWidth: CGFloat = 568
 
     let store: IntelligenceStore
+    let flow: DailyReportFlow
     let proximityStore: ProximityLockStore?
-    @Environment(\.openSettings) private var openSettings
     @State private var selectedPointID: IntelligencePoint.ID?
 
     init(
         store: IntelligenceStore,
+        flow: DailyReportFlow,
         selectedPointID: IntelligencePoint.ID? = nil,
         proximityStore: ProximityLockStore? = nil
     ) {
         self.store = store
+        self.flow = flow
         self.proximityStore = proximityStore
         _selectedPointID = State(initialValue: selectedPointID)
     }
@@ -158,8 +160,7 @@ struct MenuBarPanel: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                 Button("打开设置") {
-                    openSettings()
-                    SettingsWindowPresenter.bringToFront()
+                    flow.send(.open(.settings))
                 }
                 .pointerStyle(.link)
             }
@@ -224,9 +225,16 @@ struct MenuBarPanel: View {
                 Spacer()
 
                 Button {
+                    flow.send(.open(.report))
+                } label: {
+                    Label("日报", systemImage: "doc.text")
+                }
+                .buttonStyle(.borderless)
+                .pointerStyle(.link)
+
+                Button {
                     AppTelemetry.menuBar.info("Settings command selected")
-                    openSettings()
-                    SettingsWindowPresenter.bringToFront()
+                    flow.send(.open(.settings))
                 } label: {
                     Label("设置", systemImage: "gearshape")
                 }
@@ -235,7 +243,7 @@ struct MenuBarPanel: View {
 
                 Button {
                     AppTelemetry.menuBar.info("Quit command selected")
-                    NSApplication.shared.terminate(nil)
+                    flow.send(.quit)
                 } label: {
                     Label("退出", systemImage: "power")
                 }

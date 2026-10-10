@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A220000000000000000000001 /* CocoaLumberjack in Frameworks */ = {isa = PBXBuildFile; productRef = A220000000000000000000003 /* CocoaLumberjack */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		AF8952F63015C65500167B5A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A220000000000000000000001 /* CocoaLumberjack in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +117,7 @@
 			);
 			name = "random-thoughts";
 			packageProductDependencies = (
+				A220000000000000000000003 /* CocoaLumberjack */,
 			);
 			productName = "random-thoughts";
 			productReference = AF8952E83015C65400167B5A /* random-thoughts.app */;
@@ -195,6 +201,9 @@
 			);
 			mainGroup = AF8952DF3015C65300167B5A;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A220000000000000000000002 /* XCRemoteSwiftPackageReference "CocoaLumberjack" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AF8952E93015C65400167B5A /* Products */;
 			projectDirPath = "";
@@ -641,6 +650,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A220000000000000000000002 /* XCRemoteSwiftPackageReference "CocoaLumberjack" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/CocoaLumberjack/CocoaLumberjack.git";
+			requirement = {
+				kind = exactVersion;
+				version = 3.10.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A220000000000000000000003 /* CocoaLumberjack */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A220000000000000000000002 /* XCRemoteSwiftPackageReference "CocoaLumberjack" */;
+			productName = CocoaLumberjack;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AF8952E03015C65400167B5A /* Project object */;
 }

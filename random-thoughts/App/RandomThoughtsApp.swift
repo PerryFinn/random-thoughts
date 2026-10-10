@@ -1,43 +1,20 @@
-import AppKit
 import SwiftUI
 
 @main
 struct RandomThoughtsApp: App {
     @NSApplicationDelegateAdaptor(AppLifecycleDelegate.self) private var appDelegate
-    @State private var store: IntelligenceStore
-    @State private var proximityStore: ProximityLockStore
-
-    init() {
-        let store = IntelligenceStore(
-            service: IntelligenceService(session: .shared),
-            defaults: .standard,
-            now: { Date() },
-            sleep: { try await Task.sleep(for: .seconds($0)) }
-        )
-        let proximityStore = ProximityLockStore()
-        _store = State(initialValue: store)
-        _proximityStore = State(initialValue: proximityStore)
-        store.startUpdating()
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
-            proximityStore.start()
-        }
-    }
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarPanel(store: store, proximityStore: proximityStore)
+            MenuBarPanel(store: appDelegate.store, flow: appDelegate.flow, proximityStore: appDelegate.proximityStore)
         } label: {
             Image(
-                systemName: proximityStore.latestRSSI == nil
+                systemName: appDelegate.proximityStore.latestRSSI == nil
                     ? "brain.head.profile"
                     : "brain.head.profile.fill"
             )
                 .accessibilityLabel("随想")
         }
         .menuBarExtraStyle(.window)
-
-        Settings {
-            SettingsView(store: store, proximityStore: proximityStore)
-        }
     }
 }
