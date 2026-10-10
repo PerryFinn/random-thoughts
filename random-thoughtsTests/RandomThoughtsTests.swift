@@ -247,10 +247,13 @@ struct RandomThoughtsTests {
     @MainActor
     private static func makeReportFlow() -> DailyReportFlow {
         DailyReportFlow(
+            storage: DailyReportDatabase(directory: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)),
             now: { Date(timeIntervalSince1970: 0) },
             timeZone: TimeZone(secondsFromGMT: 0)!,
             performWindowEffect: { _ in },
-            recordWindowMode: { _ in }
+            recordWindowMode: { _ in },
+            copyMarkdown: { _ in }
         )
     }
 

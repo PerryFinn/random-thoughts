@@ -7,6 +7,14 @@ struct AppWindowConfiguration: Sendable {
     let canResize: Bool
     let canFullScreen: Bool
 
+    func restoredContentSize(stored: CGSize?, visibleContentSize: CGSize) -> CGSize {
+        let desired = stored ?? defaultSize
+        return CGSize(
+            width: min(max(desired.width, minimumSize.width), visibleContentSize.width),
+            height: min(max(desired.height, minimumSize.height), visibleContentSize.height)
+        )
+    }
+
     static let report = Self(
         defaultSize: CGSize(width: 1100, height: 760),
         minimumSize: CGSize(width: 900, height: 620),

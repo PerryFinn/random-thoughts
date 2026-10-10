@@ -23,10 +23,16 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         self.proximityStore = proximityStore
         self.windowCoordinator = windowCoordinator
         flow = DailyReportFlow(
+            storage: DailyReportDatabase(directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("com.perryfinn.random-thoughts/DailyReports", isDirectory: true)),
             now: { Date() },
             timeZone: .current,
             performWindowEffect: { windowCoordinator.perform($0) },
-            recordWindowMode: { telemetry.windowModeChanged($0) }
+            recordWindowMode: { telemetry.windowModeChanged($0) },
+            copyMarkdown: { markdown in
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(markdown, forType: .string)
+            }
         )
         super.init()
         windowCoordinator.flow = flow
@@ -56,5 +62,11 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if flow.canTerminate { return .terminateNow }
+        flow.send(.quit)
+        return .terminateCancel
     }
 }

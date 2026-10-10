@@ -1,6 +1,6 @@
 # 构建与隔离测试
 
-本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21)、[#22](https://github.com/PerryFinn/random-thoughts/issues/22) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。
+本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21)、[#22](https://github.com/PerryFinn/random-thoughts/issues/22)、[#23](https://github.com/PerryFinn/random-thoughts/issues/23) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。
 
 ## 命令
 
@@ -14,7 +14,7 @@
 
 `build.sh` 仅调用 Xcode 的 `build`，产物位于 `.build/DerivedData`，不运行旧启动脚本，也不终止已运行的应用。隔离入口先用 SwiftPM 编译测试，再在 macOS 沙盒内执行 Swift Testing 测试程序；支持 Swift Testing 的 `--filter` 参数。它没有应用可执行产品、生产 `TEST_HOST` 或生产入口初始化。
 
-macOS 的 `.xctest` 是加载包，脚本用当前工具链的 `swiftpm-testing-helper` 加载它，调用方式依据 [Swift Testing 官方说明](https://github.com/swiftlang/swift-testing/blob/main/Documentation/CommandlineDebugging.md)。沙盒仅允许执行这个加载器。
+macOS 的 `.xctest` 是加载包，脚本用当前工具链的 `swiftpm-testing-helper` 加载它，调用方式依据 [Swift Testing 官方说明](https://github.com/swiftlang/swift-testing/blob/main/Documentation/CommandlineDebugging.md)。沙盒只允许执行这个加载器及 #23 的专用 `ReportStorageProbe`；后者只接收本次临时根目录内的合成数据库，用于跨进程锁、事务故障和拒绝坏库验证，不是应用入口。
 
 旧 Xcode 测试目标仍包含真实窗口聚焦等系统测试，必须单独获得应用启动授权：
 
@@ -28,7 +28,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 
 ## 复用实现与外部边界
 
-SwiftPM 的 `random_thoughts` 库直接编译清单列出的生产 Swift 文件，Xcode 应用继续编译这些文件，业务实现不复制。清单只纳入可隔离实现；生产 `@main`、应用 Delegate、AppKit 窗口操作、蓝牙及系统操作 Adapter 不在测试产物中。`DailyReportFlow` 的动作／状态接口供日报界面和主要业务测试共用；窗口系统动作注入受控接收器，原生内容通过 `NSHostingView` 测量且不创建窗口。扫描、草稿、生成和数据库由后续票接入。窗口边界详见 [daily-report-windows.md](daily-report-windows.md)。
+SwiftPM 的 `random_thoughts` 库直接编译清单列出的生产 Swift 文件，Xcode 应用继续编译这些文件，业务实现不复制。清单只纳入可隔离实现；生产 `@main`、应用 Delegate、AppKit 窗口操作、蓝牙及系统操作 Adapter 不在测试产物中。`DailyReportFlow` 的动作／状态接口供日报界面和主要业务测试共用；窗口系统动作注入受控接收器，原生内容通过 `NSHostingView` 测量且不创建窗口。#23 接入内存草稿与真实 SQLite，扫描和生成由后续票接入。窗口及内容边界详见 [daily-report-windows.md](daily-report-windows.md) 与 [daily-report-content.md](daily-report-content.md)。
 
 模型刷新作为既有行为的验证样本：Store 显式接收服务、UserDefaults、时钟和调度，服务显式接收 URLSession。只有生产组合传入真实会话及系统时间，测试组合使用合成传输和受控时间。构造 Store 不启动刷新；受控调度用明确屏障推进，失败保留旧状态且不改用生产依赖。
 
@@ -37,7 +37,7 @@ SwiftPM 的 `random_thoughts` 库直接编译清单列出的生产 Swift 文件�
 - 每次运行建立独立临时根目录；每个测试环境再分配独立目录、数据库位置、合成测试密钥和随机 UserDefaults suite。`defer` 清理 suite 与目录，脚本退出再清理整次运行目录；不删除或重置用户数据库。
 - 固定时钟与可控调度器可供后续日报模块注入。用完成/调度屏障等待，不通过任意 sleep、真实聚焦、用户凭据或 Codex 数据建立前提。
 - 合成 URLProtocol 仅安装到测试专用的 ephemeral URLSession，禁缓存/凭据/Cookie 存储。未知请求或注入故障直接失败，不回退 `URLSession.shared`。
-- 执行沙盒禁止网络、额外进程执行、蓝牙服务访问以及真实用户主目录内容读取；主目录内仅放行仓库读取，系统框架正常读取。所有文件及偏好写入独立临时位置。脚本要求系统沙盒可用，任何准备或沙盒失败均非零退出，不提供无隔离重跑分支。
+- 执行沙盒禁止网络、未列入白名单的进程执行、蓝牙服务访问以及真实用户主目录内容读取；主目录内仅放行仓库读取，系统框架正常读取。所有文件及偏好写入独立临时位置。脚本要求系统沙盒可用，任何准备或沙盒失败均非零退出，不提供无隔离重跑分支。
 - U 验证既有刷新状态与固定时间；I 验证真实请求构造/解码、受控失败和沙盒禁止能力；L 通过 `NSHostingView.fittingSize` 测量生产卡片，不创建、展示或聚焦窗口。
 
 日报遥测测试直接使用固定版本 CocoaLumberjack，在独立 `DDLog` 中注册线程安全内存 logger；生产者完成提交后在日志队列外 `flushLog()`，检查完整 `DDLogMessage` 及最终文本。生产注册测试检查唯一 `DDOSLogger` 与无 formatter，固定 subsystem/category 由源码核对，不发系统日志事件。真实聚焦、Dock、快捷键与睡眠／唤醒交互由授权的 #35 验收承接。
@@ -126,3 +126,33 @@ rtk proxy env DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuil
 code-review 首轮 Standards 提出 1 项 P2：`SettingsView` 留有旧日期格式化转发入口。按不做向后兼容的仓库规则，删除该入口，并将唯一测试调用方直接更新为 `IntelligenceSettingsView`。两轴各自复核最终修订后，Standards 为 0 项未解决问题、0 项新增可行动气味；Spec 为 0 项问题。
 
 未执行：生产应用启动、真实聚焦／反最小化／Dock／快捷键／系统睡眠唤醒、截图、macOS 26.5 人工验收、旧宿主／UI 测试执行、真实 Codex／AI、OSLog 持久化／采样。真实窗口系统交互按 #22 分工由 #35 承接，窗口正常尺寸持久化由 #23 承接；本票结果不代表完整日报交付验收。
+
+## #23 验证记录（2026-10-11）
+
+本票沿用 #22 的 macOS 26.6、Xcode 26.6、Swift 6.3.3 环境。实现边界见 [daily-report-content.md](daily-report-content.md)。只处理手写、保存、历史、内存草稿保护与正常窗口尺寸，没有扫描、AI、配置编辑、迁移或重置。
+
+| 实际命令 | 结果 |
+| --- | --- |
+| `rtk proxy ./script/build.sh` | `BUILD SUCCEEDED`，修订后的生产 Debug 纯构建。 |
+| `rtk proxy ./script/test-isolated.sh` | 12 个 suite、42 项测试通过；存储故障含 9 个参数用例、DST 含 4 个参数用例、退出尺寸屏障含 2 个参数用例。 |
+| `rtk proxy bash -n script/build.sh script/test-isolated.sh` | 通过。 |
+| `rtk git diff --check` | 通过。 |
+
+旧宿主及 UI 测试调用方使用 #22 记录的 scheme `build-for-testing` 命令，只编译而不执行，结果为 `TEST BUILD SUCCEEDED`。先前单独编译旧测试 target 因未构建 Swift Package 依赖而缺少 CocoaLumberjack module map；改用 scheme 后通过。隔离目标没有编译警告；生产构建仅既有 AppIntents 元数据跳过提示，首次旧测试编译观察到未修改的 `ProximityLockTests` 中 4 条 MainActor／Equatable 警告。
+
+| 层级 | 新增或扩展的验证 | 结果 |
+| --- | --- | --- |
+| U | 手写、删空、空正文、相同正文、精确撤销、原样复制与保存时间 | 首次有效编辑建立草稿，既有正文精确撤销清草稿；显式保存允许空／相同正文，不附来源或改写 Markdown。 |
+| U | 覆盖确认竞争、保存失败与提交屏障 | 旧确认不能保存变化后的正文；失败保留原文和草稿，本地重试成功才清草稿；提交期间不能改正文或结束。 |
+| U | 跨日期／时区关闭与退出保护、旧回调／旧确认 | 默认取消后保留全部草稿；逐份保存或确认放弃才结束，真关闭不恢复草稿或确认面板；返回编辑取消待执行的退出，撤销正文后旧任务也不能退出；确认结束后的迟到取消不能阻止已确认退出。 |
+| U | 报告日与正常尺寸 | New York 的 23／25 小时及 Havana、São Paulo 跳过午夜均取正确日边界；受控写入期间尺寸 A→B→A 最终恢复 A，尺寸限制符合主显示区域约束；直接退出或确认放弃后退出都等待最终尺寸提交，等待期间新建草稿仍须确认。 |
+| U | 原始 unified diff 与安全预览 | 保留空格、Unicode 差异和末行换行状态；预览保留段落／列表及行内格式，只保留允许显式打开的链接。 |
+| I | 真实 SQLite、独立进程锁及存储故障 | 原文与尺寸经真实 SQL 读取，目录／文件权限为 0700／0600；第二进程被拒绝，持锁者结束后可打开；真实提交失败回滚并可重试。 |
+| I | 坏字段／schema／版本／权限、恢复或重置标记 | 专用子进程拒绝处理且主库字节不变；缺少报告日主键并含重复记录的库也被拒绝；主库缺失但有恢复标记时不创建。 |
+| L | 最小／默认尺寸、长正文、预览和确认 | 生产内容经无窗口 `NSHostingView` 测量通过；没有创建 `NSWindow` 或呈现 sheet。 |
+
+文档先更新，再通过隔离测试确认失败并完成实现。code-review 首轮 Standards 提出 1 项 P2（缺少主键校验），Spec 提出 3 项 P2（预览段落合并、午夜 DST 日边界、异步尺寸去重），Spec 复审另提出 2 项 P2（尺寸写入未完成时允许退出、返回编辑未取消等待退出）；均新增或扩展回归，先确认失败再修复。另补关闭后的旧确认清理和确认结束后的迟到取消回归。最终两轴独立复核：Standards 为 0 项未解决问题、0 项新增可行动气味，Spec 为 0 项未解决问题。
+
+删除了日报正文旧占位内容及流程旧初始化方式，所有生产、隔离和旧宿主测试调用方一起更新；没有保留兼容入口，也没有删除数据库、用户数据或完整源文件。
+
+未执行：生产应用启动、旧宿主／UI 测试执行、真实窗口／sheet 调整与滚动／聚焦／主显示器居中／全屏／最小化等系统交互、截图、macOS 26.5 人工验收、真实 Codex／AI、OSLog 持久化及父规格性能验收。这些结果不代表整套日报功能或系统交互已验收。

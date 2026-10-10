@@ -121,10 +121,12 @@ private final class WindowTestEnvironment {
 
     func makeFlow() -> DailyReportFlow {
         DailyReportFlow(
+            storage: ControlledReportStorage(),
             now: { Date(timeIntervalSince1970: 1_000) },
             timeZone: TimeZone(secondsFromGMT: 0)!,
             performWindowEffect: { self.effects.append($0) },
-            recordWindowMode: { self.modes.append($0) }
+            recordWindowMode: { self.modes.append($0) },
+            copyMarkdown: { _ in }
         )
     }
 }

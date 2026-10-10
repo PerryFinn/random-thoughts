@@ -28,6 +28,8 @@ BUILD_OPTIONS=(
 BIN_DIR="$("$SWIFT_BIN" build "${BUILD_OPTIONS[@]}" --show-bin-path)"
 TEST_BINARY="$BIN_DIR/RandomThoughtsIsolationPackageTests.xctest/Contents/MacOS/RandomThoughtsIsolationPackageTests"
 [[ -x "$TEST_BINARY" ]]
+STORAGE_PROBE="$BIN_DIR/ReportStorageProbe"
+[[ -x "$STORAGE_PROBE" ]]
 
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp/}random-thoughts-tests.XXXXXX")"
 TEST_ROOT="$(cd "$TEST_ROOT" && pwd -P)"
@@ -35,6 +37,7 @@ trap 'rm -rf "$TEST_ROOT"' EXIT
 mkdir -p "$TEST_ROOT/home" "$TEST_ROOT/tmp"
 
 export RANDOM_THOUGHTS_TEST_ROOT="$TEST_ROOT"
+export RANDOM_THOUGHTS_STORAGE_PROBE="$STORAGE_PROBE"
 export RANDOM_THOUGHTS_PROTECTED_HOME="$HOME"
 export CFFIXED_USER_HOME="$TEST_ROOT/home"
 export TMPDIR="$TEST_ROOT/tmp/"
@@ -44,5 +47,6 @@ export TMPDIR="$TEST_ROOT/tmp/"
   -D "WORKSPACE=$ROOT_DIR" \
   -D "TEST_ROOT=$TEST_ROOT" \
   -D "TEST_RUNNER=$TEST_RUNNER" \
+  -D "STORAGE_PROBE=$STORAGE_PROBE" \
   -f "$ROOT_DIR/script/isolated-tests.sb" \
   "$TEST_RUNNER" --test-bundle-path "$TEST_BINARY" --testing-library swift-testing "$@"

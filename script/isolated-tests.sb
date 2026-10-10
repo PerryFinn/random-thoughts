@@ -1,8 +1,11 @@
 (version 1)
 (allow default)
 
-; Only the hostless test runner can execute. No app, Codex or other subprocess.
-(deny process-exec (require-not (literal (param "TEST_RUNNER"))))
+; Only the hostless runner and dedicated synthetic SQLite probe can execute.
+(deny process-exec
+    (require-all
+        (require-not (literal (param "TEST_RUNNER")))
+        (require-not (literal (param "STORAGE_PROBE")))))
 (deny network*)
 (deny mach-lookup (global-name-regex #".*[Bb]luetooth.*"))
 (deny mach-lookup (global-name "com.apple.cfprefsd.agent"))

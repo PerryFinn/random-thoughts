@@ -4,7 +4,10 @@ import PackageDescription
 let package = Package(
     name: "RandomThoughtsIsolation",
     platforms: [.macOS("26.5")],
-    products: [.library(name: "random_thoughts", targets: ["random_thoughts"])],
+    products: [
+        .library(name: "random_thoughts", targets: ["random_thoughts"]),
+        .executable(name: "ReportStorageProbe", targets: ["ReportStorageProbe"])
+    ],
     dependencies: [
         .package(url: "https://github.com/CocoaLumberjack/CocoaLumberjack.git", exact: "3.10.0")
     ],
@@ -25,7 +28,10 @@ let package = Package(
                 "Views/ProximityDevicePickerSheet.swift", "Views/ProximitySettingsView.swift"
             ],
             sources: [
-                "Models/AppWindowModels.swift", "Stores/DailyReportFlow.swift",
+                "Models/AppWindowModels.swift", "Models/DailyReportModels.swift", "Stores/DailyReportFlow.swift",
+                "Services/DailyReportDatabase.swift",
+                "Models/MarkdownDiff.swift", "Models/SafeMarkdown.swift",
+                "Views/ReportConfirmationView.swift",
                 "Models/AppWindowConfiguration.swift", "Views/DailyReportView.swift", "Views/SettingsView.swift",
                 "Views/IntelligenceSettingsView.swift",
                 "Support/DailyReportTelemetry.swift",
@@ -36,6 +42,7 @@ let package = Package(
             ],
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
+        .executableTarget(name: "ReportStorageProbe", dependencies: ["random_thoughts"], path: "StorageProbe"),
         .testTarget(
             name: "IsolatedTests",
             dependencies: ["random_thoughts", .product(name: "CocoaLumberjack", package: "CocoaLumberjack")],
