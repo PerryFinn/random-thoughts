@@ -35,6 +35,11 @@ final class DailyReportFlow {
         case systemTimeZoneChanged(TimeZone)
         case requestCloseSettings(UUID)
         case discardSettingsAndContinue(UUID)
+        case editCodexSource(CodexDataSourceConfiguration, session: UUID)
+        case saveCodexSource
+        case rediscoverCodexSource
+        case revertCodexSource
+        case cancelCodexCheck
     }
 
     private(set) var openWindows: [AppWindowKind: UUID] = [:]
@@ -63,6 +68,13 @@ final class DailyReportFlow {
 
     var reportTimeZone: TimeZone { selectedDay.timeZone }
     var hasGeneralSettingsEdits: Bool { generalSettingsEdit != generalSettings }
+    var codexSource: CodexDataSourceSettings { codexSourceStore.saved }
+    var codexSourceEdit: CodexDataSourceConfiguration { codexSourceStore.edit }
+    var codexSourceStatus: CodexSourceStatus { codexSourceStore.status }
+    var isCheckingCodexSource: Bool { codexSourceStore.isChecking }
+    var codexSourceError: CodexSourceError? { codexSourceStore.error }
+    var codexSourceStorageError: ReportStorageError? { codexSourceStore.storageError }
+    var hasCodexSourceEdits: Bool { codexSourceStore.hasEdits }
     var effectiveReportTimeZone: TimeZone? { generalSettings.effectiveTimeZone(macTimeZone: macTimeZone) }
     var effectiveTimeZoneIdentifier: String? { effectiveReportTimeZone.map(Self.timeZoneIdentifier) }
     var canUseReportTimeZone: Bool { isStorageReady && effectiveReportTimeZone != nil }
@@ -80,7 +92,7 @@ final class DailyReportFlow {
     var draftDays: [ReportDay] {
         drafts.keys.sorted { ($0.calendarDate, $0.timeZoneIdentifier) < ($1.calendarDate, $1.timeZoneIdentifier) }
     }
-    var canTerminate: Bool { !isSaving && pendingSizeWrites == 0 && drafts.isEmpty && !hasGeneralSettingsEdits }
+    var canTerminate: Bool { !isSaving && pendingSizeWrites == 0 && drafts.isEmpty && !hasGeneralSettingsEdits && !hasCodexSourceEdits && !isCheckingCodexSource }
     var historyDays: [ReportDay] {
         Set(savedReports.keys).union(drafts.keys).sorted {
             ($0.calendarDate, $0.timeZoneIdentifier) > ($1.calendarDate, $1.timeZoneIdentifier)
@@ -107,14 +119,17 @@ final class DailyReportFlow {
     @ObservationIgnored private let copyMarkdown: (String) -> Void
     @ObservationIgnored private var storageTask: Task<Void, Never>?
     @ObservationIgnored private var quitTask: Task<Void, Never>?
+    private let codexSourceStore: CodexDataSourceStore
 
     init(
         storage: any DailyReportStorage,
+        codexSourceAccess: any CodexSourceAccess,
         now: @escaping () -> Date,
         timeZone: TimeZone,
         performWindowEffect: @escaping (AppWindowEffect) -> Void,
         performContextEffect: @escaping (ReportContextEffect) -> Void,
         recordWindowMode: @escaping (AppWindowMode) -> Void,
+        recordCodexCheck: @escaping (CodexCheckEvent) -> Void,
         copyMarkdown: @escaping (String) -> Void
     ) {
         self.storage = storage
@@ -125,12 +140,18 @@ final class DailyReportFlow {
         self.performContextEffect = performContextEffect
         self.recordWindowMode = recordWindowMode
         self.copyMarkdown = copyMarkdown
+        codexSourceStore = CodexDataSourceStore(
+            storage: storage, access: codexSourceAccess, now: now,
+            sourceChanged: { performContextEffect(.codexSourceChanged(revision: $0)) }, record: recordCodexCheck
+        )
     }
 
     func waitForStorage() async {
         await storageTask?.value
         await quitTask?.value
     }
+
+    func waitForCodexCheck() async { await codexSourceStore.waitForCheck() }
 
     func send(_ action: Action) {
         switch action {
@@ -150,6 +171,8 @@ final class DailyReportFlow {
                 if confirmation?.windowKind == .report { confirmation = nil }
             } else {
                 generalSettingsEdit = generalSettings
+                codexSourceStore.revert()
+                codexSourceStore.cancelCheck()
                 if confirmation?.windowKind == .settings { confirmation = nil }
             }
             if lastAppliedMode != windowMode {
@@ -166,6 +189,9 @@ final class DailyReportFlow {
             guard !isSaving else { return }
             if hasGeneralSettingsEdits {
                 setConfirmation(.settings(.quit))
+                if let session = openWindows[.settings] { performWindowEffect(.present(.settings, session: session)) }
+            } else if hasCodexSourceEdits {
+                setConfirmation(.codexSettings(.quit))
                 if let session = openWindows[.settings] { performWindowEffect(.present(.settings, session: session)) }
             } else if drafts.isEmpty {
                 quitAfterPendingSizeWrites()
@@ -239,6 +265,9 @@ final class DailyReportFlow {
                 settingsValidationError = generalSettingsEdit.validationError
                 guard settingsValidationError == nil else { return }
                 saveGeneralSettings(continuation: continuation)
+            case .codexSettings(let continuation):
+                guard openWindows[.settings] != nil, pending.codexConfiguration == codexSourceEdit else { return }
+                saveCodexSource(rediscover: false, continuation: continuation)
             }
         case .cancelConfirmation:
             guard confirmation != nil else { return }
@@ -275,6 +304,8 @@ final class DailyReportFlow {
             guard !isSaving, openWindows[.settings] != nil, page != settingsPage else { return }
             if settingsPage == .general, hasGeneralSettingsEdits {
                 setConfirmation(.settings(.page(page)))
+            } else if settingsPage == .dataSource, hasCodexSourceEdits {
+                setConfirmation(.codexSettings(.page(page)))
             } else {
                 settingsPage = page
             }
@@ -319,22 +350,50 @@ final class DailyReportFlow {
             guard !isSaving, openWindows[.settings] == session else { return }
             if hasGeneralSettingsEdits {
                 setConfirmation(.settings(.close(session)))
+            } else if hasCodexSourceEdits {
+                setConfirmation(.codexSettings(.close(session)))
             } else {
+                codexSourceStore.cancelCheck()
                 performWindowEffect(.closeSettings(session: session))
             }
         case .discardSettingsAndContinue(let id):
-            guard !isSaving, let pending = confirmation, pending.id == id,
-                  case .settings(let continuation) = pending.kind else { return }
+            guard !isSaving, let pending = confirmation, pending.id == id else { return }
+            let continuation: ReportSettingsContinuation
+            switch pending.kind {
+            case .settings(let target):
+                continuation = target
+                generalSettingsEdit = generalSettings
+                settingsValidationError = nil
+                settingsStorageError = nil
+            case .codexSettings(let target):
+                continuation = target
+                codexSourceStore.revert()
+            default: return
+            }
             confirmation = nil
-            generalSettingsEdit = generalSettings
-            settingsValidationError = nil
-            settingsStorageError = nil
             completeSettingsContinuation(continuation)
+        case .editCodexSource(let configuration, let session):
+            guard isStorageReady, !isSaving, settingsPage == .dataSource, openWindows[.settings] == session else { return }
+            codexSourceStore.setEdit(configuration)
+            if let kind = confirmation?.kind { setConfirmation(kind) }
+        case .saveCodexSource:
+            guard isStorageReady, !isSaving, openWindows[.settings] != nil else { return }
+            saveCodexSource(rediscover: false)
+        case .rediscoverCodexSource:
+            guard isStorageReady, !isSaving, openWindows[.settings] != nil, codexSourceEdit.mode == .automatic else { return }
+            saveCodexSource(rediscover: true)
+        case .revertCodexSource:
+            guard !isSaving else { return }
+            codexSourceStore.revert()
+            if case .codexSettings = confirmation?.kind { confirmation = nil }
+        case .cancelCodexCheck:
+            codexSourceStore.cancelCheck()
         }
     }
 
     private func quitAfterPendingSizeWrites() {
         guard pendingSizeWrites > 0 else {
+            codexSourceStore.cancelCheck()
             performWindowEffect(.quit)
             return
         }
@@ -372,6 +431,13 @@ final class DailyReportFlow {
                 settings: generalSettingsEdit, oldTimeZoneIdentifier: effectiveTimeZoneIdentifier,
                 newTimeZoneIdentifier: editedTimeZoneIdentifier
             )
+        case .codexSettings(let continuation):
+            let quitting: Bool
+            if case .quit = continuation { quitting = true } else { quitting = false }
+            confirmation = ReportConfirmation(
+                kind: kind, previousMarkdown: nil, markdown: nil,
+                draftDays: quitting ? draftDays : [], codexConfiguration: codexSourceEdit
+            )
         }
     }
 
@@ -397,6 +463,7 @@ final class DailyReportFlow {
                     reportWindowSize = snapshot.windowSize
                     generalSettings = snapshot.generalSettings
                     generalSettingsEdit = generalSettings
+                    codexSourceStore.restore(snapshot.codexSource)
                     if let timeZone = effectiveReportTimeZone {
                         selectedDay = ReportDay(date: now(), timeZone: timeZone)
                     }
@@ -481,6 +548,14 @@ final class DailyReportFlow {
         }
     }
 
+    private func saveCodexSource(rediscover: Bool, continuation: ReportSettingsContinuation = .stay) {
+        isSaving = true
+        storageTask = codexSourceStore.save(rediscover: rediscover, after: storageTask) { success in
+            self.finishSaving()
+            if success { self.completeSettingsContinuation(continuation) }
+        }
+    }
+
     private static func timeZoneIdentifier(_ timeZone: TimeZone) -> String {
         timeZone.identifier == "GMT" ? "Etc/UTC" : timeZone.identifier
     }
@@ -490,7 +565,10 @@ final class DailyReportFlow {
         case .stay: break
         case .page(let page): settingsPage = page
         case .close(let session):
-            if openWindows[.settings] == session { performWindowEffect(.closeSettings(session: session)) }
+            if openWindows[.settings] == session {
+                codexSourceStore.cancelCheck()
+                performWindowEffect(.closeSettings(session: session))
+            }
         case .quit:
             drafts.removeAll()
             quitAfterPendingSizeWrites()

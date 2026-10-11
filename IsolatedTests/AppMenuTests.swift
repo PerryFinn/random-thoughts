@@ -8,11 +8,13 @@ struct AppMenuTests {
     @Test func menuOffersSpecifiedShortcutsAndOnlyMinimizesTheReport() throws {
         let flow = DailyReportFlow(
             storage: ControlledReportStorage(),
+            codexSourceAccess: ControlledCodexSource(),
             now: { Date(timeIntervalSince1970: 1_000) },
             timeZone: TimeZone(secondsFromGMT: 0)!,
             performWindowEffect: { _ in },
             performContextEffect: { _ in },
             recordWindowMode: { _ in },
+            recordCodexCheck: { _ in },
             copyMarkdown: { _ in }
         )
         var keyWindow: AppWindowKind? = .settings

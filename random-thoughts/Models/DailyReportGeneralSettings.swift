@@ -81,6 +81,7 @@ nonisolated enum ReportSettingsContinuation: Sendable {
 }
 
 nonisolated enum ReportContextEffect: Equatable, Sendable {
+    case codexSourceChanged(revision: UInt64)
     case cancelTimeZoneTasks(String, revision: UInt64)
     case rescan(ReportDay, revision: UInt64)
 }

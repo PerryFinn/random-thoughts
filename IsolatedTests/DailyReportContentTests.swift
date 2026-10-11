@@ -329,26 +329,30 @@ struct DailyReportContentTests {
 @MainActor
 final class ReportFlowTestEnvironment {
     let storage = ControlledReportStorage()
+    let codex = ControlledCodexSource()
     var now = Date(timeIntervalSince1970: 1_000)
     var effects: [AppWindowEffect] = []
     var copies: [String] = []
     var contextEffects: [ReportContextEffect] = []
+    var codexEvents: [CodexCheckEvent] = []
 
     func makeFlow(timeZone: TimeZone = TimeZone(identifier: "Etc/UTC")!) -> DailyReportFlow {
         DailyReportFlow(
             storage: storage,
+            codexSourceAccess: codex,
             now: { self.now },
             timeZone: timeZone,
             performWindowEffect: { self.effects.append($0) },
             performContextEffect: { self.contextEffects.append($0) },
             recordWindowMode: { _ in },
+            recordCodexCheck: { self.codexEvents.append($0) },
             copyMarkdown: { self.copies.append($0) }
         )
     }
 }
 
 actor ControlledReportStorage: DailyReportStorage {
-    private var snapshot = ReportStorageSnapshot(reports: [], windowSize: nil, generalSettings: DailyReportGeneralSettings())
+    private var snapshot = ReportStorageSnapshot(reports: [], windowSize: nil, generalSettings: DailyReportGeneralSettings(), codexSource: CodexDataSourceSettings())
     private var saveFailure = false
     private var loadFailure: ReportStorageError?
     private var holdsNextSave = false
@@ -376,6 +380,19 @@ actor ControlledReportStorage: DailyReportStorage {
         await waitForSaveIfHeld()
         if saveFailure { throw ReportStorageError.writeFailed }
         snapshot.generalSettings = settings
+    }
+
+    func saveCodexSource(_ settings: CodexDataSourceSettings) async throws {
+        await waitForSaveIfHeld()
+        if saveFailure { throw ReportStorageError.writeFailed }
+        snapshot.codexSource = settings
+    }
+
+    func saveCodexDiagnostic(identity: CodexSourceIdentity, checkedAt: Date, version: CodexVersion?) async throws {
+        if saveFailure { throw ReportStorageError.writeFailed }
+        guard snapshot.codexSource.identity == identity else { return }
+        snapshot.codexSource.lastSuccessfulCheck = checkedAt
+        snapshot.codexSource.version = version
     }
 
     private func waitForSaveIfHeld() async {

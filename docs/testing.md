@@ -1,6 +1,6 @@
 # 构建与隔离测试
 
-本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#24](https://github.com/PerryFinn/random-thoughts/issues/24) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。
+本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#25](https://github.com/PerryFinn/random-thoughts/issues/25) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。
 
 ## 命令
 
@@ -14,7 +14,7 @@
 
 `build.sh` 仅调用 Xcode 的 `build`，产物位于 `.build/DerivedData`，不运行旧启动脚本，也不终止已运行的应用。隔离入口先用 SwiftPM 编译测试，再在 macOS 沙盒内执行 Swift Testing 测试程序；支持 Swift Testing 的 `--filter` 参数。它没有应用可执行产品、生产 `TEST_HOST` 或生产入口初始化。
 
-macOS 的 `.xctest` 是加载包，脚本用当前工具链的 `swiftpm-testing-helper` 加载它，调用方式依据 [Swift Testing 官方说明](https://github.com/swiftlang/swift-testing/blob/main/Documentation/CommandlineDebugging.md)。沙盒只允许执行这个加载器及 #23 的专用 `ReportStorageProbe`；后者只接收本次临时根目录内的合成数据库，用于跨进程锁、事务故障和拒绝坏库验证，不是应用入口。
+macOS 的 `.xctest` 是加载包，脚本用当前工具链的 `swiftpm-testing-helper` 加载它，调用方式依据 [Swift Testing 官方说明](https://github.com/swiftlang/swift-testing/blob/main/Documentation/CommandlineDebugging.md)。沙盒只允许执行该加载器、#23 的 `ReportStorageProbe` 和 #25 的 `SyntheticCodexServer`。两个替身仅接收本次临时根目录内的合成数据库或协议夹具，用于真实 SQLite／stdio 机制验证，不是应用或 Codex 入口。stdio stderr 丢弃到 `/dev/null`，沙盒仅为此放行该空设备，其他文件写入仍限于临时根目录。
 
 旧 Xcode 测试目标仍包含真实窗口聚焦等系统测试，必须单独获得应用启动授权：
 
@@ -36,6 +36,7 @@ SwiftPM 的 `random_thoughts` 库直接编译清单列出的生产 Swift 文件�
 
 - 每次运行建立独立临时根目录；每个测试环境再分配独立目录、数据库位置、合成测试密钥和随机 UserDefaults suite。`defer` 清理 suite 与目录，脚本退出再清理整次运行目录；不删除或重置用户数据库。
 - 固定时钟与可控调度器可供后续日报模块注入。用完成/调度屏障等待，不通过任意 sleep、真实聚焦、用户凭据或 Codex 数据建立前提。
+- 数据库重开测试先等待 `DailyReportDatabase.close()` 归还连接与目录锁，不依赖异步任务中 ARC 临时引用的释放时机；生产组合仍持有应用生命周期内的唯一连接。
 - 合成 URLProtocol 仅安装到测试专用的 ephemeral URLSession，禁缓存/凭据/Cookie 存储。未知请求或注入故障直接失败，不回退 `URLSession.shared`。
 - 执行沙盒禁止网络、未列入白名单的进程执行、蓝牙服务访问以及真实用户主目录内容读取；主目录内仅放行仓库读取，系统框架正常读取。所有文件及偏好写入独立临时位置。脚本要求系统沙盒可用，任何准备或沙盒失败均非零退出，不提供无隔离重跑分支。
 - U 验证既有刷新状态与固定时间；I 验证真实请求构造/解码、受控失败和沙盒禁止能力；L 通过 `NSHostingView.fittingSize` 测量生产卡片，不创建、展示或聚焦窗口。
@@ -193,3 +194,38 @@ code-review 固定起点为本票开始时的 `27b065e4b9a9fa0afd6596de804272c7f
 删除了常规设置占位内容、视图自行维护的设置选择状态及评审发现的未使用确认字段；所有流程、视图、隔离和旧宿主测试调用方一起更新。正文编辑接口增加时区变化代次，没有保留兼容入口。没有删除用户数据库、数据或完整源文件；schema 2 拒绝旧 schema 并保留原库，本票不迁移。
 
 未执行：生产应用启动、旧宿主／UI 测试执行、真实设置窗口／sheet／键盘／滚动／系统时区通知与睡眠唤醒交互、截图、macOS 26.5 人工验收、真实 Codex／AI、历史输入规划、OSLog 持久化及父规格性能／语义验收。取消／重扫与设置值固定的受控验证不代表真实任务或系统交互已经验收。
+
+## #25 验证记录（2026-10-11）
+
+沿用 #24 的 macOS 26.6、Xcode 26.6、Swift 6.3.3 环境。范围见 [codex-data-source.md](codex-data-source.md)。#23 的本地实现为 `27b065e`，GitHub 仍开放；开始时现场重跑其内容及真实数据库测试，2 个 suite、17 项通过。本票已认领，仅新增来源设置与操作级基础检查，扫描、候选和生成留给后续票。
+
+| 实际命令 | 结果 |
+| --- | --- |
+| `rtk proxy ./script/build.sh` | `BUILD SUCCEEDED`；仅生产 Debug 构建。 |
+| `rtk proxy ./script/test-isolated.sh` | 16 个 suite、78 项测试通过；比 #24 新增 18 项，参数用例另计。 |
+| `rtk proxy ./script/test-isolated.sh --filter 'CodexDataSourceTests\|CodexStdioTests'` | 2 个 suite、11 项通过；其中流程 7 项覆盖保存、重启、失败、旧回调、离页和退出。 |
+| `rtk proxy ./script/test-isolated.sh --filter CodexSourceDiscoveryTests` | 3 项通过；四级发现、稳定入口、目录优先级及路径／权限拒绝。 |
+| `rtk proxy ./script/test-isolated.sh --filter 'CodexStdioTests\|sourceAndDiagnosticsCommit\|sourceStorageFaults'` | 真实机制联测通过；stdio 成功含 7 个场景，协议故障含 9 个场景，存储损坏含 6 个场景。 |
+
+旧宿主和 UI 测试调用方另用 #22 记录的 scheme `build-for-testing` 命令只编译，结果为 `TEST BUILD SUCCEEDED`，未执行测试或启动应用。隔离编译无警告；生产纯构建仅既有 AppIntents 元数据跳过提示。首次旧测试编译另有未修改的 `ProximityLockTests` 中 4 条 MainActor／Equatable 警告，以及 Xcode 解析打包 XCTest／Testing 框架时的 4 条工具提示；最终增量编译仅余 AppIntents 提示。
+
+| 层级 | 验证行为 | 证据 |
+| --- | --- | --- |
+| U | 同库保存后才检查、失败保留新来源、存储失败保留旧来源与编辑、不取消旧检查 | `aFailedCheckKeepsTheCommittedSourceAndExistingReportAndDraft`、`storageFailureDoesNotCancelTheOldCheckOrReplaceItsCommittedSource`。 |
+| U | 自动结果仍为自动模式、持久历史与当前状态分开，重启不启动检查 | `savingAndCheckingKeepsAutomaticIdentityButRestartIsUnchecked`。 |
+| U | 新来源取消旧检查、隔离迟到结果与诊断、快照上下文通知不影响草稿和日报 | `replacingSourceRejectsLateDiagnosticsAndKeepsOnlyTheNewIdentity`，上下文 effect 使用来源代次，扫描 Adapter 尚未接入。 |
+| U | 同一离页／关闭保护、失败留页、旧确认失效、返回编辑继续检查，实际关闭／退出取消 | `leavingEditedSourceUsesOneConfirmationAndStorageFailureKeepsThePage`、`cancelledLeaveConfirmationKeepsCheckingButActualCloseRejectsLateSuccess`、`quittingCancelsTheCurrentCheckAndRejectsItsLateResult`。 |
+| I | 真实文件检查及规范化单目录；无效显式／继承值不回退，不创建 Codex 目录 | `CodexSourceDiscoveryTests`；发现入口为专用替身的稳定符号链接，未执行其他文件。 |
+| I | 真实管道握手、当前／归档稳定列表和 includeTurns 读取；通知、未知内容、9 MiB 响应、旧或未解析版本 | `realStdioChecksStableMethodsWithoutStartingOrResumingAThread`；替身严格核对方法与参数，空列表不制造会话，版本不作能力门槛。 |
+| I | 方法／参数／必要 schema、握手／读取、非法响应、传输中断、截止时间与取消 | `protocolFailuresExposeOnlyFixedErrorsAndReapTheOperation`、`cancellingABlockedRealPipeReturnsWithoutLeavingTheChildRunning`；FIFO 为就绪屏障，不依赖任意 sleep；每次核对子进程已回收。 |
+| I | SQLite 真提交失败回滚、成功保存重开、旧身份诊断不覆盖新配置、坏值／schema 拒绝且原库字节不变 | `sourceAndDiagnosticsCommitTogetherReopenAndIgnoreOldIdentity`、`sourceStorageFaultsRejectWithoutChangingTheOriginalDatabase`。 |
+| I | 固定结果／错误码／数字版本进入真实日志对象，原始响应及 Error 不进入敏感出口 | `codexDiagnosticsOnlyLogFixedCodesAndParsedNumericVersions`；受限版本类型不接受原始文字，内存 logger 使用 `flushLog()`。 |
+| L | 长入口／目录及诊断适配固定设置尺寸，无 NSWindow | `dataSourceEditorAndDiagnosticsFitTheFixedSettingsWindowWithoutAWindow`。 |
+
+文档先更新，缺少来源接口、离页保护、stdio 和遥测入口的测试先失败，再完成实现。压力回归发现全缓冲反复扫描会使合法长响应超时，改为只扫描新增片段；基础管道读取改用可返回部分数据的 POSIX read，避免等待填满缓冲。协议替身场景串行验证，失败场景有独立截止时间。全套还发现重开测试依赖 ARC 释放时机导致偶发占用，改用显式连接关闭屏障，保留生产连接的生命周期目录锁。
+
+code-review 固定起点为本票开始时的 `f88a832e3b11fbe82518fa49c46cf3e24ecb7a07`，提交前双轴独立评审暂存差异，不包含此前 11 个未推送提交。Standards 首轮提出 1 项 P3（入口错误分类重复），已统一为固定分类属性并复核；Spec 首轮为 0 项发现。最终 Standards 为 0 项硬性违反、0 项未解决气味、0 项新增问题；Spec 为 0 项缺失／错误、0 项范围扩张。分类重构后的 `rtk proxy ./script/test-isolated.sh --filter 'CodexDataSourceTests\|DailyReportTelemetryTests\|dataSourceEditorAndDiagnostics'` 为 3 个 suite、11 项通过。脚本 `bash -n` 与暂存差异 `git diff --cached --check` 均通过。
+
+删除了数据源页占位分支和流程旧初始化签名，所有生产、隔离及旧宿主测试调用方一起更新；没有保留兼容入口、私有 JSONL 或常驻进程路径。未删除用户数据库、数据或完整源文件。schema 3 拒绝旧库并保留原文件，不迁移、不自动重建。
+
+未执行：生产应用启动、旧宿主／UI 测试执行、真实文件选择／设置窗口／sheet／键盘／滚动与系统交互、截图、macOS 26.5 人工验收、真实 Codex／AI、会话扫描／生成、OSLog 持久化及父规格性能／语义验收。真实读取闭环由 #35 承接，当前替身检查不代表真实 Codex 已验收。

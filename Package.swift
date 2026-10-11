@@ -6,7 +6,8 @@ let package = Package(
     platforms: [.macOS("26.5")],
     products: [
         .library(name: "random_thoughts", targets: ["random_thoughts"]),
-        .executable(name: "ReportStorageProbe", targets: ["ReportStorageProbe"])
+        .executable(name: "ReportStorageProbe", targets: ["ReportStorageProbe"]),
+        .executable(name: "SyntheticCodexServer", targets: ["SyntheticCodexServer"])
     ],
     dependencies: [
         .package(url: "https://github.com/CocoaLumberjack/CocoaLumberjack.git", exact: "3.10.0")
@@ -30,10 +31,14 @@ let package = Package(
             sources: [
                 "Models/AppWindowModels.swift", "Models/DailyReportModels.swift", "Stores/DailyReportFlow.swift",
                 "Models/DailyReportGeneralSettings.swift",
+                "Models/CodexDataSource.swift", "Stores/CodexDataSourceStore.swift",
+                "Services/CodexDataSourceReader.swift",
+                "Services/CodexStdioCheck.swift",
                 "Services/DailyReportDatabase.swift",
                 "Models/MarkdownDiff.swift", "Models/SafeMarkdown.swift",
                 "Views/ReportConfirmationView.swift",
                 "Views/DailyReportGeneralSettingsView.swift",
+                "Views/DailyReportCodexSourceView.swift",
                 "Models/AppWindowConfiguration.swift", "Views/DailyReportView.swift", "Views/SettingsView.swift",
                 "Views/IntelligenceSettingsView.swift",
                 "Support/DailyReportTelemetry.swift",
@@ -45,6 +50,7 @@ let package = Package(
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
         .executableTarget(name: "ReportStorageProbe", dependencies: ["random_thoughts"], path: "StorageProbe"),
+        .executableTarget(name: "SyntheticCodexServer", path: "CodexProbe", exclude: ["README.md"]),
         .testTarget(
             name: "IsolatedTests",
             dependencies: ["random_thoughts", .product(name: "CocoaLumberjack", package: "CocoaLumberjack")],

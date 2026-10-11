@@ -30,6 +30,8 @@ TEST_BINARY="$BIN_DIR/RandomThoughtsIsolationPackageTests.xctest/Contents/MacOS/
 [[ -x "$TEST_BINARY" ]]
 STORAGE_PROBE="$BIN_DIR/ReportStorageProbe"
 [[ -x "$STORAGE_PROBE" ]]
+CODEX_PROBE="$BIN_DIR/SyntheticCodexServer"
+[[ -x "$CODEX_PROBE" ]]
 
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp/}random-thoughts-tests.XXXXXX")"
 TEST_ROOT="$(cd "$TEST_ROOT" && pwd -P)"
@@ -38,6 +40,7 @@ mkdir -p "$TEST_ROOT/home" "$TEST_ROOT/tmp"
 
 export RANDOM_THOUGHTS_TEST_ROOT="$TEST_ROOT"
 export RANDOM_THOUGHTS_STORAGE_PROBE="$STORAGE_PROBE"
+export RANDOM_THOUGHTS_CODEX_PROBE="$CODEX_PROBE"
 export RANDOM_THOUGHTS_PROTECTED_HOME="$HOME"
 export CFFIXED_USER_HOME="$TEST_ROOT/home"
 export TMPDIR="$TEST_ROOT/tmp/"
@@ -48,5 +51,6 @@ export TMPDIR="$TEST_ROOT/tmp/"
   -D "TEST_ROOT=$TEST_ROOT" \
   -D "TEST_RUNNER=$TEST_RUNNER" \
   -D "STORAGE_PROBE=$STORAGE_PROBE" \
+  -D "CODEX_PROBE=$CODEX_PROBE" \
   -f "$ROOT_DIR/script/isolated-tests.sb" \
   "$TEST_RUNNER" --test-bundle-path "$TEST_BINARY" --testing-library swift-testing "$@"

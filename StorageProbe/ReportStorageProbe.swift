@@ -58,6 +58,7 @@ struct ReportStorageProbe {
             guard try await database!.load().reports == [revised] else { throw ProbeError.failed }
             return
         }
+        await database?.close()
         database = nil
         let expected: ReportStorageError
         switch scenario {
@@ -84,6 +85,24 @@ struct ReportStorageProbe {
         case "old-schema":
             try execute("PRAGMA user_version=1", at: url)
             expected = .unsupportedVersion
+        case "source-old-schema":
+            try execute("PRAGMA user_version=2", at: url)
+            expected = .unsupportedVersion
+        case "source-bad-mode":
+            try execute("UPDATE codex_source SET mode='unknown'", at: url)
+            expected = .invalidData
+        case "source-bad-version":
+            try execute("UPDATE codex_source SET version='RAW_VERSION_SECRET_25'", at: url)
+            expected = .invalidData
+        case "source-missing":
+            try execute("DELETE FROM codex_source", at: url)
+            expected = .invalidData
+        case "source-bad-history":
+            try execute("UPDATE codex_source SET last_successful_check=100", at: url)
+            expected = .invalidData
+        case "source-bad-schema":
+            try execute("ALTER TABLE codex_source ADD COLUMN raw_response TEXT", at: url)
+            expected = .invalidData
         case "settings-bad-mode":
             try execute("UPDATE general_settings SET time_zone_mode='unknown'", at: url)
             expected = .invalidData

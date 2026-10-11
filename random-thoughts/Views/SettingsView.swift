@@ -100,6 +100,8 @@ private struct DailyReportSettingsView: View {
 
             if flow.settingsPage == .general {
                 DailyReportGeneralSettingsView(flow: flow)
+            } else if flow.settingsPage == .dataSource {
+                DailyReportCodexSourceView(flow: flow)
             } else {
                 let section = DailyReportSettingsSection(rawValue: flow.settingsPage.rawValue)!
                 ScrollView {

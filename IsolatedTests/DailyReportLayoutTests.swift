@@ -6,6 +6,26 @@ import Testing
 
 @MainActor
 struct DailyReportLayoutTests {
+    @Test func dataSourceEditorAndDiagnosticsFitTheFixedSettingsWindowWithoutAWindow() async throws {
+        let environment = ReportFlowTestEnvironment()
+        let flow = environment.makeFlow()
+        flow.send(.open(.settings))
+        await flow.waitForStorage()
+        flow.send(.requestSettingsPage(.dataSource))
+        flow.send(.editCodexSource(CodexDataSourceConfiguration(
+            mode: .manual, executablePath: "/synthetic/" + String(repeating: "很长的入口/", count: 80),
+            explicitDirectory: "/synthetic/" + String(repeating: "很长的目录/", count: 80)
+        ), session: try #require(flow.openWindows[.settings])))
+        let editor = NSHostingView(rootView: DailyReportCodexSourceView(flow: flow).frame(width: 580, height: 520))
+        #expect(editor.fittingSize == NSSize(width: 580, height: 520))
+        #expect(editor.window == nil)
+        let settings = NSHostingView(rootView: SettingsView(
+            flow: flow, intelligenceContent: AnyView(Text("合成模型")), proximityContent: AnyView(Text("合成蓝牙"))
+        ))
+        #expect(settings.fittingSize == NSSize(width: 860, height: 620))
+        #expect(settings.window == nil)
+    }
+
     @Test func generalSettingsAndMergedConfirmationFitWithoutAWindow() async throws {
         let environment = ReportFlowTestEnvironment()
         let flow = environment.makeFlow()
@@ -60,11 +80,13 @@ struct DailyReportLayoutTests {
     @Test func reportFitsDefaultAndMinimumSizesWithoutAWindow() {
         let flow = DailyReportFlow(
             storage: ControlledReportStorage(),
+            codexSourceAccess: ControlledCodexSource(),
             now: { Date(timeIntervalSince1970: 1_000) },
             timeZone: TimeZone(secondsFromGMT: 0)!,
             performWindowEffect: { _ in },
             performContextEffect: { _ in },
             recordWindowMode: { _ in },
+            recordCodexCheck: { _ in },
             copyMarkdown: { _ in }
         )
         let defaultView = NSHostingView(rootView: DailyReportView(flow: flow))

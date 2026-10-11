@@ -5,6 +5,45 @@ import Testing
 
 @MainActor
 struct DailyReportDatabaseTests {
+    @Test func sourceAndDiagnosticsCommitTogetherReopenAndIgnoreOldIdentity() async throws {
+        let environment = try IsolatedTestEnvironment()
+        defer { environment.close() }
+        var database: DailyReportDatabase? = DailyReportDatabase(directory: environment.directory)
+        let initial = try await #require(database).load()
+        let first = CodexDataSourceSettings(configuration: CodexDataSourceConfiguration(mode: .automatic, executablePath: "/synthetic/stable", explicitDirectory: ""),
+                                            resolvedDirectory: "/synthetic/first")
+        let second = CodexDataSourceSettings(configuration: CodexDataSourceConfiguration(mode: .manual, executablePath: "/synthetic/replaced", explicitDirectory: "/synthetic/alias"),
+                                             resolvedDirectory: "/synthetic/second")
+        try await #require(database).saveCodexSource(first)
+        try await #require(database).saveCodexDiagnostic(identity: try #require(first.identity), checkedAt: environment.clock.now, version: CodexVersion("9.8.7"))
+        let success = try await #require(database).load().codexSource
+        #expect(success.configuration == first.configuration)
+        #expect(success.lastSuccessfulCheck == environment.clock.now)
+        #expect(success.version?.description == "9.8.7")
+        var reader: OpaquePointer?
+        #expect(sqlite3_open_v2(environment.databaseURL.path, &reader, SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+        defer { sqlite3_close(reader) }
+        #expect(sqlite3_exec(reader, "BEGIN; SELECT * FROM codex_source", nil, nil, nil) == SQLITE_OK)
+        await #expect(throws: ReportStorageError.writeFailed) { try await #require(database).saveCodexSource(second) }
+        #expect(try await #require(database).load().codexSource == success)
+        #expect(sqlite3_exec(reader, "ROLLBACK", nil, nil, nil) == SQLITE_OK)
+        try await #require(database).saveCodexSource(second)
+        try await #require(database).saveCodexDiagnostic(identity: try #require(first.identity), checkedAt: environment.clock.now, version: CodexVersion("1.2.3"))
+        try await #require(database).close()
+        database = nil
+        let restored = try await DailyReportDatabase(directory: environment.directory).load()
+        #expect(restored.codexSource == second)
+        #expect(restored.generalSettings == initial.generalSettings)
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: environment.directory.path)) == ["reports.sqlite", "storage.lock"])
+    }
+
+    @Test(arguments: ["source-old-schema", "source-bad-mode", "source-bad-version", "source-missing", "source-bad-history", "source-bad-schema"])
+    func sourceStorageFaultsRejectWithoutChangingTheOriginalDatabase(_ scenario: String) throws {
+        let environment = try IsolatedTestEnvironment()
+        defer { environment.close() }
+        #expect(try runStorageProbe(scenario, directory: environment.directory) == 0)
+    }
+
     @Test(arguments: ["Etc/GMT+8", "Etc/GMT-14", "CET", "EET", "MET", "WET", "CST6CDT", "PST8PDT"])
     func validFixedIanaSettingsAndReportsReopenWithTheirOriginalIdentity(_ identifier: String) async throws {
         let environment = try IsolatedTestEnvironment()
@@ -19,6 +58,7 @@ struct DailyReportDatabaseTests {
             markdown: "时区原身份 IANA_REPORT_24", savedAt: environment.clock.now, lastEditedAt: nil
         )
         try await #require(database).save(report)
+        try await #require(database).close()
         database = nil
         let restored = try await DailyReportDatabase(directory: environment.directory).load()
         #expect(restored.generalSettings == settings)
@@ -62,6 +102,7 @@ struct DailyReportDatabaseTests {
         #expect(afterFailure.reports == [report])
         #expect(sqlite3_exec(reader, "ROLLBACK", nil, nil, nil) == SQLITE_OK)
         try await #require(database).saveGeneralSettings(revised)
+        try await #require(database).close()
         database = nil
         let restored = try await DailyReportDatabase(directory: environment.directory).load()
         #expect(restored.generalSettings == revised)
@@ -76,6 +117,7 @@ struct DailyReportDatabaseTests {
         var owner: DailyReportDatabase? = DailyReportDatabase(directory: environment.directory)
         _ = try await owner?.load()
         #expect(try runStorageProbe("open", directory: environment.directory) == 73)
+        await owner?.close()
         owner = nil
         #expect(try runStorageProbe("open", directory: environment.directory) == 0)
     }

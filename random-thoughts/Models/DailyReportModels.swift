@@ -52,6 +52,7 @@ nonisolated struct ReportStorageSnapshot: Sendable {
     var reports: [SavedDailyReport]
     var windowSize: CGSize?
     var generalSettings: DailyReportGeneralSettings
+    var codexSource: CodexDataSourceSettings
 }
 
 protocol DailyReportStorage: Actor {
@@ -59,6 +60,8 @@ protocol DailyReportStorage: Actor {
     func save(_ report: SavedDailyReport) async throws
     func saveWindowSize(_ size: CGSize) async throws
     func saveGeneralSettings(_ settings: DailyReportGeneralSettings) async throws
+    func saveCodexSource(_ settings: CodexDataSourceSettings) async throws
+    func saveCodexDiagnostic(identity: CodexSourceIdentity, checkedAt: Date, version: CodexVersion?) async throws
 }
 
 nonisolated enum ReportStorageError: Error, Sendable {
@@ -88,6 +91,7 @@ nonisolated struct ReportConfirmation: Identifiable, Sendable {
         case close(UUID)
         case quit
         case settings(ReportSettingsContinuation)
+        case codexSettings(ReportSettingsContinuation)
     }
 
     let id = UUID()
@@ -96,10 +100,14 @@ nonisolated struct ReportConfirmation: Identifiable, Sendable {
     let markdown: String?
     let draftDays: [ReportDay]
     var settings: DailyReportGeneralSettings? = nil
+    var codexConfiguration: CodexDataSourceConfiguration? = nil
     var oldTimeZoneIdentifier: String? = nil
     var newTimeZoneIdentifier: String? = nil
 
     var windowKind: AppWindowKind {
-        if case .settings = kind { .settings } else { .report }
+        switch kind {
+        case .settings, .codexSettings: .settings
+        default: .report
+        }
     }
 }

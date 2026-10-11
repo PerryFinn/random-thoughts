@@ -8,10 +8,16 @@ actor DailyReportDatabase: DailyReportStorage {
 
     init(directory: URL) { self.directory = directory }
 
+    func close() { connection = nil }
+
     func load() async throws -> ReportStorageSnapshot { try open().load() }
     func save(_ report: SavedDailyReport) async throws { try open().save(report) }
     func saveWindowSize(_ size: CGSize) async throws { try open().saveWindowSize(size) }
     func saveGeneralSettings(_ settings: DailyReportGeneralSettings) async throws { try open().saveGeneralSettings(settings) }
+    func saveCodexSource(_ settings: CodexDataSourceSettings) async throws { try open().saveCodexSource(settings) }
+    func saveCodexDiagnostic(identity: CodexSourceIdentity, checkedAt: Date, version: CodexVersion?) async throws {
+        try open().saveCodexDiagnostic(identity: identity, checkedAt: checkedAt, version: version)
+    }
 
     private func open() throws -> ReportSQLiteConnection {
         if let connection { return connection }
@@ -62,7 +68,7 @@ private nonisolated final class ReportSQLiteConnection {
             throw ReportStorageError.unavailable
         }
         if exists {
-            guard try integer("PRAGMA user_version") == 2 else { throw ReportStorageError.unsupportedVersion }
+            guard try integer("PRAGMA user_version") == 3 else { throw ReportStorageError.unsupportedVersion }
             guard try text("PRAGMA quick_check") == "ok" else { throw ReportStorageError.invalidData }
             try validateColumns("reports", expected: [
                 ("calendar_date", "TEXT", true, 1), ("time_zone", "TEXT", true, 2),
@@ -75,6 +81,12 @@ private nonisolated final class ReportSQLiteConnection {
                 ("id", "INTEGER", false, 1), ("time_zone_mode", "TEXT", true, 0),
                 ("fixed_time_zone", "TEXT", true, 0), ("output_language", "TEXT", true, 0),
                 ("generation_preferences", "TEXT", true, 0), ("history_lookback_days", "INTEGER", true, 0)
+            ])
+            try validateColumns("codex_source", expected: [
+                ("id", "INTEGER", false, 1), ("mode", "TEXT", true, 0),
+                ("executable_path", "TEXT", true, 0), ("explicit_directory", "TEXT", true, 0),
+                ("resolved_directory", "TEXT", false, 0), ("last_successful_check", "REAL", false, 0),
+                ("version", "TEXT", false, 0)
             ])
         }
         try execute("PRAGMA journal_mode=DELETE; PRAGMA synchronous=EXTRA; PRAGMA secure_delete=ON; PRAGMA temp_store=MEMORY")
@@ -98,7 +110,13 @@ private nonisolated final class ReportSQLiteConnection {
                         generation_preferences TEXT NOT NULL, history_lookback_days INTEGER NOT NULL
                     ) STRICT;
                     INSERT INTO general_settings VALUES(1,'followMac','Etc/UTC','chinese','',1);
-                    PRAGMA user_version=2;
+                    CREATE TABLE codex_source (
+                        id INTEGER PRIMARY KEY CHECK(id=1), mode TEXT NOT NULL,
+                        executable_path TEXT NOT NULL, explicit_directory TEXT NOT NULL,
+                        resolved_directory TEXT, last_successful_check REAL, version TEXT
+                    ) STRICT;
+                    INSERT INTO codex_source VALUES(1,'automatic','','',NULL,NULL,NULL);
+                    PRAGMA user_version=3;
                     """)
             }
         }
@@ -157,7 +175,24 @@ private nonisolated final class ReportSQLiteConnection {
             guard try !next(query) else { throw ReportStorageError.invalidData }
             return value
         }
-        return ReportStorageSnapshot(reports: reports, windowSize: size, generalSettings: settings)
+        let source = try statement("SELECT id,mode,executable_path,explicit_directory,resolved_directory,last_successful_check,version FROM codex_source") { query in
+            guard try next(query), sqlite3_column_type(query, 0) == SQLITE_INTEGER, sqlite3_column_int64(query, 0) == 1,
+                  let mode = try CodexDiscoveryMode(rawValue: columnText(query, 1)) else { throw ReportStorageError.invalidData }
+            let directory = sqlite3_column_type(query, 4) == SQLITE_NULL ? nil : try columnText(query, 4)
+            let checkedAt = sqlite3_column_type(query, 5) == SQLITE_NULL ? nil : try columnDate(query, 5)
+            let rawVersion = sqlite3_column_type(query, 6) == SQLITE_NULL ? nil : try columnText(query, 6)
+            let version = rawVersion.flatMap(CodexVersion.init)
+            guard rawVersion == nil || version?.description == rawVersion,
+                  directory == nil || (directory!.hasPrefix("/") && !directory!.contains("\u{0}")),
+                  version == nil || checkedAt != nil else { throw ReportStorageError.invalidData }
+            let value = CodexDataSourceSettings(
+                configuration: CodexDataSourceConfiguration(mode: mode, executablePath: try columnText(query, 2), explicitDirectory: try columnText(query, 3)),
+                resolvedDirectory: directory, lastSuccessfulCheck: checkedAt, version: version
+            )
+            guard checkedAt == nil || value.identity != nil, try !next(query) else { throw ReportStorageError.invalidData }
+            return value
+        }
+        return ReportStorageSnapshot(reports: reports, windowSize: size, generalSettings: settings, codexSource: source)
     }
 
     func save(_ report: SavedDailyReport) throws {
@@ -209,6 +244,41 @@ private nonisolated final class ReportSQLiteConnection {
                 }
             }
         }
+    }
+
+    func saveCodexSource(_ settings: CodexDataSourceSettings) throws {
+        guard settings.lastSuccessfulCheck?.timeIntervalSince1970.isFinite != false,
+              settings.lastSuccessfulCheck == nil || settings.identity != nil,
+              settings.version == nil || settings.lastSuccessfulCheck != nil else { throw ReportStorageError.invalidData }
+        try transaction {
+            try statement("UPDATE codex_source SET mode=?,executable_path=?,explicit_directory=?,resolved_directory=?,last_successful_check=?,version=? WHERE id=1") { query in
+                try bind(settings.configuration.mode.rawValue, to: query, at: 1)
+                try bind(settings.configuration.executablePath, to: query, at: 2)
+                try bind(settings.configuration.explicitDirectory, to: query, at: 3)
+                try bindOptional(settings.resolvedDirectory, to: query, at: 4)
+                let status = settings.lastSuccessfulCheck.map { sqlite3_bind_double(query, 5, $0.timeIntervalSince1970) } ?? sqlite3_bind_null(query, 5)
+                try bindOptional(settings.version?.description, to: query, at: 6)
+                guard status == SQLITE_OK, sqlite3_step(query) == SQLITE_DONE, sqlite3_changes(database) == 1 else { throw ReportStorageError.writeFailed }
+            }
+        }
+    }
+
+    func saveCodexDiagnostic(identity: CodexSourceIdentity, checkedAt: Date, version: CodexVersion?) throws {
+        guard checkedAt.timeIntervalSince1970.isFinite else { throw ReportStorageError.invalidData }
+        try transaction {
+            try statement("UPDATE codex_source SET last_successful_check=?,version=? WHERE id=1 AND executable_path=? AND resolved_directory=?") { query in
+                guard sqlite3_bind_double(query, 1, checkedAt.timeIntervalSince1970) == SQLITE_OK else { throw ReportStorageError.writeFailed }
+                try bindOptional(version?.description, to: query, at: 2)
+                try bind(identity.executablePath, to: query, at: 3)
+                try bind(identity.dataDirectory, to: query, at: 4)
+                guard sqlite3_step(query) == SQLITE_DONE else { throw ReportStorageError.writeFailed }
+            }
+        }
+    }
+
+    private func bindOptional(_ value: String?, to query: OpaquePointer, at index: Int32) throws {
+        if let value { try bind(value, to: query, at: index) }
+        else if sqlite3_bind_null(query, index) != SQLITE_OK { throw ReportStorageError.writeFailed }
     }
 
     private func transaction(_ operation: () throws -> Void) throws {
