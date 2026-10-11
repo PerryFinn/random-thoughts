@@ -252,6 +252,7 @@ struct RandomThoughtsTests {
             now: { Date(timeIntervalSince1970: 0) },
             timeZone: TimeZone(secondsFromGMT: 0)!,
             performWindowEffect: { _ in },
+            performContextEffect: { _ in },
             recordWindowMode: { _ in },
             copyMarkdown: { _ in }
         )

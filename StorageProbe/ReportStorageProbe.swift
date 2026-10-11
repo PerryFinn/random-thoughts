@@ -81,6 +81,30 @@ struct ReportStorageProbe {
                 INSERT INTO reports SELECT * FROM original_reports;
                 """, at: url)
             expected = .invalidData
+        case "old-schema":
+            try execute("PRAGMA user_version=1", at: url)
+            expected = .unsupportedVersion
+        case "settings-bad-mode":
+            try execute("UPDATE general_settings SET time_zone_mode='unknown'", at: url)
+            expected = .invalidData
+        case "settings-bad-language":
+            try execute("UPDATE general_settings SET output_language='unknown'", at: url)
+            expected = .invalidData
+        case "settings-bad-lookback":
+            try execute("UPDATE general_settings SET history_lookback_days=8", at: url)
+            expected = .invalidData
+        case "settings-missing":
+            try execute("DELETE FROM general_settings", at: url)
+            expected = .invalidData
+        case "settings-invalid-timezone":
+            try execute("UPDATE general_settings SET time_zone_mode='fixed',fixed_time_zone='INVALID/IANA_24'", at: url)
+            let original = try Data(contentsOf: url)
+            let loaded = try await DailyReportDatabase(directory: directory).load()
+            guard loaded.generalSettings.fixedTimeZoneIdentifier == "INVALID/IANA_24",
+                  loaded.generalSettings.timeZoneMode == .fixed,
+                  loaded.generalSettings.effectiveTimeZone(macTimeZone: TimeZone(identifier: "Asia/Shanghai")!) == nil,
+                  loaded.reports == [report], try Data(contentsOf: url) == original else { throw ProbeError.failed }
+            return
         case "permissions":
             guard chmod(url.path, 0o400) == 0 else { throw ProbeError.failed }
             expected = .unavailable

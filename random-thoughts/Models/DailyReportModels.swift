@@ -28,9 +28,7 @@ nonisolated struct ReportDay: Hashable, Sendable, Identifiable {
     }
 
     init(calendarDate: String, timeZoneIdentifier: String) throws {
-        guard let timeZone = TimeZone(identifier: timeZoneIdentifier),
-              TimeZone.knownTimeZoneIdentifiers.contains(timeZoneIdentifier)
-                || timeZoneIdentifier.contains("/") || ["UTC", "GMT"].contains(timeZoneIdentifier),
+        guard let timeZone = ReportTimeZone.resolve(timeZoneIdentifier),
               calendarDate.utf8.count == 10 else { throw ReportStorageError.invalidData }
         let parts = calendarDate.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3, (1...9999).contains(parts[0]) else { throw ReportStorageError.invalidData }
@@ -53,12 +51,14 @@ nonisolated struct SavedDailyReport: Equatable, Sendable {
 nonisolated struct ReportStorageSnapshot: Sendable {
     var reports: [SavedDailyReport]
     var windowSize: CGSize?
+    var generalSettings: DailyReportGeneralSettings
 }
 
 protocol DailyReportStorage: Actor {
     func load() async throws -> ReportStorageSnapshot
     func save(_ report: SavedDailyReport) async throws
     func saveWindowSize(_ size: CGSize) async throws
+    func saveGeneralSettings(_ settings: DailyReportGeneralSettings) async throws
 }
 
 nonisolated enum ReportStorageError: Error, Sendable {
@@ -76,7 +76,7 @@ nonisolated enum ReportStorageError: Error, Sendable {
         case .invalidData: "日报数据或格式无法读取。原数据已保留，请使用兼容应用检查。"
         case .unsupportedVersion: "此日报数据库版本不受支持。请使用兼容版本打开，原数据已保留。"
         case .recoveryRequired: "日报目录包含待恢复状态，已停止创建或写入数据库。请先完成恢复。"
-        case .writeFailed: "本地保存失败，原日报和草稿已保留。可以重试保存或复制 Markdown。"
+        case .writeFailed: "本地保存失败，已保存日报未改变。可以重试保存或复制 Markdown。"
         }
     }
 }
@@ -87,6 +87,7 @@ nonisolated struct ReportConfirmation: Identifiable, Sendable {
         case discard(ReportDay)
         case close(UUID)
         case quit
+        case settings(ReportSettingsContinuation)
     }
 
     let id = UUID()
@@ -94,4 +95,11 @@ nonisolated struct ReportConfirmation: Identifiable, Sendable {
     let previousMarkdown: String?
     let markdown: String?
     let draftDays: [ReportDay]
+    var settings: DailyReportGeneralSettings? = nil
+    var oldTimeZoneIdentifier: String? = nil
+    var newTimeZoneIdentifier: String? = nil
+
+    var windowKind: AppWindowKind {
+        if case .settings = kind { .settings } else { .report }
+    }
 }

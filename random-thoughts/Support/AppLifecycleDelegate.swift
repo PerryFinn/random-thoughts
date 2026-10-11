@@ -28,6 +28,7 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             now: { Date() },
             timeZone: .current,
             performWindowEffect: { windowCoordinator.perform($0) },
+            performContextEffect: { _ in },
             recordWindowMode: { telemetry.windowModeChanged($0) },
             copyMarkdown: { markdown in
                 NSPasteboard.general.clearContents()

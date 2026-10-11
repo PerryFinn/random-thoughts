@@ -1,6 +1,6 @@
 # 手写、保存与日报历史
 
-本切片实现 [#23](https://github.com/PerryFinn/random-thoughts/issues/23)，沿用父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 第 1、2、9、11、12 组及 ADR-0002／0003。会话扫描、AI、设置编辑、删除、迁移与重置由其他票承接。
+本切片实现 [#23](https://github.com/PerryFinn/random-thoughts/issues/23)，沿用父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 第 1、2、9、11、12 组及 ADR-0002／0003。常规设置及其草稿影响由 [#24](daily-report-settings.md) 接入；会话扫描、AI、删除与重置由其他票承接，本轮不做兼容或迁移。
 
 ## 流程接口与内存状态
 
@@ -24,7 +24,7 @@
 
 生产目录通过 Foundation 解析当前用户 Application Support，位于 `com.perryfinn.random-thoughts/DailyReports/reports.sqlite`。目录 0700、数据库与锁文件 0600；不迁移既有模型或蓝牙数据。同目录的进程锁覆盖打开与所有读写，锁文件的存在不代表占用；进程结束释放锁，不抢占另一实例。
 
-首个 schema 使用显式版本和真实 SQLite 事务，设置 `journal_mode=DELETE`、`synchronous=EXTRA`、`secure_delete=ON`。仅保存报告日、原始 Markdown、UTC 保存时间、可空最后编辑时间，以及正常窗口内容宽高。没有草稿、基线、来源、恢复副本或生成档案。SQLite 管理正常 rollback journal。
+当前 schema 使用显式版本和真实 SQLite 事务，设置 `journal_mode=DELETE`、`synchronous=EXTRA`、`secure_delete=ON`。保存报告日、原始 Markdown、UTC 保存时间、可空最后编辑时间、正常窗口内容宽高，以及 #24 的常规设置。没有草稿、基线、来源、恢复副本或生成档案。SQLite 管理正常 rollback journal。
 
 只有明确不存在主库且没有待恢复事务或重置意图时才初始化。打开、权限、字段、schema 或版本错误保留原数据并停止操作，不静默创建空库；schema 校验包含必填列和报告日复合主键，读取时拒绝重复报告日。本轮不实现升级、迁移、删除或重置，#33 承接完整验收。错误向界面和遥测只提供固定类别，不输出正文、路径或 SQLite 原始错误。
 

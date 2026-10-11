@@ -29,9 +29,11 @@ let package = Package(
             ],
             sources: [
                 "Models/AppWindowModels.swift", "Models/DailyReportModels.swift", "Stores/DailyReportFlow.swift",
+                "Models/DailyReportGeneralSettings.swift",
                 "Services/DailyReportDatabase.swift",
                 "Models/MarkdownDiff.swift", "Models/SafeMarkdown.swift",
                 "Views/ReportConfirmationView.swift",
+                "Views/DailyReportGeneralSettingsView.swift",
                 "Models/AppWindowConfiguration.swift", "Views/DailyReportView.swift", "Views/SettingsView.swift",
                 "Views/IntelligenceSettingsView.swift",
                 "Support/DailyReportTelemetry.swift",

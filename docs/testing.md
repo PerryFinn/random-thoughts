@@ -1,6 +1,6 @@
 # 构建与隔离测试
 
-本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21)、[#22](https://github.com/PerryFinn/random-thoughts/issues/22)、[#23](https://github.com/PerryFinn/random-thoughts/issues/23) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。
+本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#24](https://github.com/PerryFinn/random-thoughts/issues/24) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。
 
 ## 命令
 
@@ -42,7 +42,7 @@ SwiftPM 的 `random_thoughts` 库直接编译清单列出的生产 Swift 文件�
 
 日报遥测测试直接使用固定版本 CocoaLumberjack，在独立 `DDLog` 中注册线程安全内存 logger；生产者完成提交后在日志队列外 `flushLog()`，检查完整 `DDLogMessage` 及最终文本。生产注册测试检查唯一 `DDOSLogger` 与无 formatter，固定 subsystem/category 由源码核对，不发系统日志事件。真实聚焦、Dock、快捷键与睡眠／唤醒交互由授权的 #35 验收承接。
 
-这一入口不代表 SQLite/CryptoKit、tokenizer、真实 Codex/AI、系统交互或整个日报功能已经验收。后续各票补充其真实机制和行为测试，并记录实际执行的命令、结果及未执行项目。
+这一入口不代表全部 SQLite/CryptoKit 契约、tokenizer、真实 Codex/AI、系统交互或整个日报功能已经验收。#23／#24 已验证各自使用的真实 SQLite 机制；后续各票继续补充其机制和行为测试，并记录实际执行的命令、结果及未执行项目。
 
 ## #21 验证记录（2026-10-09）
 
@@ -156,3 +156,40 @@ code-review 首轮 Standards 提出 1 项 P2：`SettingsView` 留有旧日期格
 删除了日报正文旧占位内容及流程旧初始化方式，所有生产、隔离和旧宿主测试调用方一起更新；没有保留兼容入口，也没有删除数据库、用户数据或完整源文件。
 
 未执行：生产应用启动、旧宿主／UI 测试执行、真实窗口／sheet 调整与滚动／聚焦／主显示器居中／全屏／最小化等系统交互、截图、macOS 26.5 人工验收、真实 Codex／AI、OSLog 持久化及父规格性能验收。这些结果不代表整套日报功能或系统交互已验收。
+
+## #24 验证记录（2026-10-11）
+
+本票沿用 #23 的 macOS 26.6、Xcode 26.6、Swift 6.3.3 环境。实现范围见 [daily-report-settings.md](daily-report-settings.md)。仅开放常规设置，取消／重扫由类型化受控 Adapter 验证，不接入数据源或生成协议。
+
+| 实际命令 | 结果 |
+| --- | --- |
+| `rtk proxy ./script/build.sh` | `BUILD SUCCEEDED`，生产 Debug 纯构建。 |
+| `rtk proxy ./script/test-isolated.sh` | 13 个 suite、60 项测试通过；新增 14 项设置流程、3 项存储、1 项布局测试，设置离页／退出／回看／存储故障／提交与时区竞争包含参数用例。 |
+| `rtk proxy ./script/test-isolated.sh --filter DailyReportSettingsTests` | 14 项设置流程测试通过；有效 IANA 名含 11 个参数，非法名含 5 个参数，正文与设置提交期间通知含 2／4 个参数。 |
+| `rtk proxy ./script/test-isolated.sh --filter DailyReportDatabaseTests` | 6 项真实存储测试通过，新增设置故障含 6 个参数用例、有效时区日报保存重开含 8 个参数用例。 |
+| `rtk proxy ./script/test-isolated.sh --filter DailyReportLayoutTests` | 4 项无窗口原生布局测试通过。 |
+| `rtk git diff --check` | 通过。 |
+
+| 层级 | 验证行为 | 证据 |
+| --- | --- | --- |
+| U | 独立设置加载、统一保存／撤销、语言／偏好／0–7 回看、越界输入拒绝 | `generalSettingsCommitTogetherAndRevertToSavedValues`、`invalidHistoryLookbackIsRejectedWithoutSavingOtherEdits`。 |
+| U | 手动时区确认、多个旧日期、目标时区草稿与全部已保存日报保留、提交冻结、失败原子保护 | `manualTimeZoneChangeCommitsBeforeDiscardingAllOldDatesAndKeepsTargetDrafts`。 |
+| U | 自动时区清旧草稿、事后计数、取消／重扫、重复通知、旧编辑代次拒绝 | `automaticMacTimeZoneChangeClearsOldDatesAndRejectsLateEditsWithoutConfirmation`。 |
+| U | 正文／设置提交期间合并最新时区通知，成功／失败返回后串行切换、保留目标草稿，排除删除后迟到保存 | `automaticTimeZoneChangeWaitsForReportCommitBeforeClearingOldDrafts`、`automaticTimeZoneChangeWaitsForSettingsCommitAndRetainsItsTargetDrafts`。 |
+| U | 有效 `Etc/GMT` 与无斜杠 IANA 名可选择保存重开；非 IANA 偏移字符串、未知名及尾空格拒绝 | `validFixedIanaZonesCanBeSelectedSavedAndReopened`、`invalidFixedIanaNamesRemainUnchangedAndCannotBeSaved`。 |
+| U | 无效已保存固定值保留及修复、模式变化不等于有效时区变化、不改变已有生成设置值副本 | `invalidSavedFixedTimeZoneRemainsUnchangedAndBlocksNewInputsUntilRepaired`、`changingOnlyTheModeRetainsDraftsAndNonTimeZoneSettingsOnlyAffectNewGenerationValues`。 |
+| U | 同一离页／关闭／退出保护、取消不提交、放弃设置不删日报、失败留页、旧窗口及确认失效 | `leavingGeneralSettingsCombinesSaveAndDraftImpactAndFailureKeepsThePage`、`closingSettingsCanCancelDiscardOrSaveWithoutClosingTheReport`、`quitCombinesUnsavedSettingsAndAllReportDraftsWithCancellationAsTheDefault`、`confirmationKeepsItsIntentWhileDraftsAndAutomaticTimeZonesChange`。 |
+| I | SQLite 设置真事务、提交失败回滚、释放锁后重试、重新打开与 UTF-8 原值 | `sqliteCommitsGeneralSettingsTogetherAndRollsBackRealCommitFailure`；用独立合成库的真实读锁阻止 COMMIT，不模拟 SQLite 的结果。 |
+| I | 有效固定时区与其日报正文共用校验，存储关闭重开后保持原日期／时区身份 | `validFixedIanaSettingsAndReportsReopenWithTheirOriginalIdentity`。 |
+| I | 旧 schema、坏设置模式／语言／回看、缺设置行拒绝，失效固定时区保持原值 | `savedSettingsFaultsPreserveTheOriginalDatabase`；专用测试进程核对原库字节不变，无自动迁移／重置。 |
+| L | 常规页长偏好与统一保护面板适配固定设置尺寸，无 NSWindow | `generalSettingsAndMergedConfirmationFitWithoutAWindow` 与既有路线尺寸测试。 |
+
+文档先更新，接口缺失与离页／日期竞争行为的测试先失败，再完成最小实现；失败输出均已检查。隔离目标编译无警告，生产构建只含既有 AppIntents 元数据跳过提示。危险确认的默认取消和各具体控件的指针样式由源码评审核对，不冒称系统键盘交互已验。
+
+旧宿主和 UI 测试调用方另用 #22 记录的 scheme `build-for-testing` 命令只编译，结果为 `TEST BUILD SUCCEEDED`，没有执行或启动应用。输出包含未修改的 `ProximityLockTests` 中 4 条 MainActor／Equatable 警告、AppIntents 元数据跳过提示，以及 Xcode 解析打包 XCTestCore／Testing 框架时的 2 条工具提示；本票没有扩展到这些蓝牙测试或测试框架处理。
+
+code-review 固定起点为本票开始时的 `27b065e4b9a9fa0afd6596de804272c7fe0e1499`，提交前评审暂存差异，不含此前 10 个未推送提交。Standards 首轮提出 1 项 P3（未使用确认字段），已删除；Spec 首轮提出 2 项 P2（提交期间自动时区变化后迟到保存、有效 IANA 时区被候选表误拒绝），均补失败回归后修复，另以真实 SQLite 回归发现并统一报告日读取校验。失败提示只陈述本次保存保证，避免与独立自动时区清除说明矛盾。最终独立复核：Standards 为 0 项硬性违反、0 项新增可行动气味；Spec 为 0 项未解决问题、0 项新增问题、0 项范围扩张。Spec 复核另运行 `rtk proxy ./script/test-isolated.sh --filter 'DailyReportSettingsTests|DailyReportDatabaseTests'`，2 个 suite、20 项通过；最终全套 60 项及生产纯构建也已亲自检查输出。
+
+删除了常规设置占位内容、视图自行维护的设置选择状态及评审发现的未使用确认字段；所有流程、视图、隔离和旧宿主测试调用方一起更新。正文编辑接口增加时区变化代次，没有保留兼容入口。没有删除用户数据库、数据或完整源文件；schema 2 拒绝旧 schema 并保留原库，本票不迁移。
+
+未执行：生产应用启动、旧宿主／UI 测试执行、真实设置窗口／sheet／键盘／滚动／系统时区通知与睡眠唤醒交互、截图、macOS 26.5 人工验收、真实 Codex／AI、历史输入规划、OSLog 持久化及父规格性能／语义验收。取消／重扫与设置值固定的受控验证不代表真实任务或系统交互已经验收。

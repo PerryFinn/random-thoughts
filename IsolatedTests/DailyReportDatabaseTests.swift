@@ -1,9 +1,75 @@
 import Foundation
+import SQLite3
 import Testing
 @testable import random_thoughts
 
 @MainActor
 struct DailyReportDatabaseTests {
+    @Test(arguments: ["Etc/GMT+8", "Etc/GMT-14", "CET", "EET", "MET", "WET", "CST6CDT", "PST8PDT"])
+    func validFixedIanaSettingsAndReportsReopenWithTheirOriginalIdentity(_ identifier: String) async throws {
+        let environment = try IsolatedTestEnvironment()
+        defer { environment.close() }
+        var database: DailyReportDatabase? = DailyReportDatabase(directory: environment.directory)
+        var settings = try await #require(database).load().generalSettings
+        settings.timeZoneMode = .fixed
+        settings.fixedTimeZoneIdentifier = identifier
+        try await #require(database).saveGeneralSettings(settings)
+        let report = SavedDailyReport(
+            day: ReportDay(date: environment.clock.now, timeZone: try #require(TimeZone(identifier: identifier))),
+            markdown: "时区原身份 IANA_REPORT_24", savedAt: environment.clock.now, lastEditedAt: nil
+        )
+        try await #require(database).save(report)
+        database = nil
+        let restored = try await DailyReportDatabase(directory: environment.directory).load()
+        #expect(restored.generalSettings == settings)
+        #expect(restored.reports == [report])
+    }
+
+    @Test(arguments: ["old-schema", "settings-bad-mode", "settings-bad-language", "settings-bad-lookback", "settings-missing", "settings-invalid-timezone"])
+    func savedSettingsFaultsPreserveTheOriginalDatabase(_ scenario: String) throws {
+        let environment = try IsolatedTestEnvironment()
+        defer { environment.close() }
+        #expect(try runStorageProbe(scenario, directory: environment.directory) == 0)
+    }
+
+    @Test func sqliteCommitsGeneralSettingsTogetherAndRollsBackRealCommitFailure() async throws {
+        let environment = try IsolatedTestEnvironment()
+        defer { environment.close() }
+        var database: DailyReportDatabase? = DailyReportDatabase(directory: environment.directory)
+        let initial = try await #require(database).load()
+        let report = SavedDailyReport(
+            day: ReportDay(date: environment.clock.now, timeZone: TimeZone(identifier: "Etc/UTC")!),
+            markdown: "历史原文 HISTORY_BODY_24", savedAt: environment.clock.now, lastEditedAt: nil
+        )
+        try await #require(database).save(report)
+        var revised = initial.generalSettings
+        revised.timeZoneMode = .fixed
+        revised.fixedTimeZoneIdentifier = "America/New_York"
+        revised.outputLanguage = .english
+        revised.generationPreferences = "  偏好 SQLITE_PREFERENCES_24\u{0}é👩🏽‍💻\n"
+        revised.historyLookbackDays = 7
+
+        var reader: OpaquePointer?
+        #expect(sqlite3_open_v2(environment.databaseURL.path, &reader, SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+        defer { sqlite3_close(reader) }
+        #expect(sqlite3_exec(reader, "BEGIN; SELECT * FROM general_settings", nil, nil, nil) == SQLITE_OK)
+        do {
+            try await #require(database).saveGeneralSettings(revised)
+            Issue.record("读事务应阻止本次真实提交")
+        } catch ReportStorageError.writeFailed { }
+        let afterFailure = try await #require(database).load()
+        #expect(afterFailure.generalSettings == initial.generalSettings)
+        #expect(afterFailure.reports == [report])
+        #expect(sqlite3_exec(reader, "ROLLBACK", nil, nil, nil) == SQLITE_OK)
+        try await #require(database).saveGeneralSettings(revised)
+        database = nil
+        let restored = try await DailyReportDatabase(directory: environment.directory).load()
+        #expect(restored.generalSettings == revised)
+        #expect(restored.generalSettings.generationPreferences.utf8.elementsEqual(revised.generationPreferences.utf8))
+        #expect(restored.reports == [report])
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: environment.directory.path)) == ["reports.sqlite", "storage.lock"])
+    }
+
     @Test func directoryLockExcludesAnotherProcessAndReleasesWithTheOwner() async throws {
         let environment = try IsolatedTestEnvironment()
         defer { environment.close() }

@@ -29,8 +29,12 @@ struct ReportConfirmationView: View {
                 }
                 .background(.quaternary.opacity(0.25))
             } else {
-                Text("需要保留的内容请返回编辑，逐份明确保存。放弃后这些草稿不会恢复。")
+                Text(explanation)
                     .foregroundStyle(.secondary)
+                if confirmation.windowKind == .settings {
+                    Text("生效时区：\(confirmation.oldTimeZoneIdentifier ?? "无效（原值保留）") → \(confirmation.newTimeZoneIdentifier ?? "无效，请返回修正")")
+                        .font(.callout).textSelection(.enabled)
+                }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(confirmation.draftDays) { day in Text("\(day.calendarDate) · \(day.timeZoneIdentifier)") }
@@ -40,8 +44,16 @@ struct ReportConfirmationView: View {
             }
             HStack {
                 Spacer()
-                Button("返回编辑") { flow.send(.cancelConfirmation) }.keyboardShortcut(.defaultAction).pointerStyle(.link)
-                Button(confirmLabel) { flow.send(.confirm(confirmation.id)) }.pointerStyle(.link)
+                Button(confirmation.windowKind == .settings ? "取消" : "返回编辑") { flow.send(.cancelConfirmation) }
+                    .keyboardShortcut(.defaultAction).disabled(flow.isSaving)
+                    .pointerStyle(flow.isSaving ? .default : .link)
+                if canDiscardSettings {
+                    Button(discardSettingsLabel) { flow.send(.discardSettingsAndContinue(confirmation.id)) }
+                        .disabled(flow.isSaving).pointerStyle(flow.isSaving ? .default : .link)
+                }
+                Button(confirmLabel) { flow.send(.confirm(confirmation.id)) }
+                    .disabled(flow.isSaving || confirmation.settings?.validationError != nil)
+                    .pointerStyle(flow.isSaving || confirmation.settings?.validationError != nil ? .default : .link)
             }
         }
         .padding(24)
@@ -56,6 +68,9 @@ struct ReportConfirmationView: View {
         case .discard: "放弃当前草稿"
         case .close: "关闭前检查全部草稿（\(confirmation.draftDays.count) 份）"
         case .quit: "退出前检查全部草稿（\(confirmation.draftDays.count) 份）"
+        case .settings(.quit): "退出前检查设置和全部草稿（\(confirmation.draftDays.count) 份）"
+        case .settings(.stay): "保存更改并删除 \(confirmation.draftDays.count) 份草稿"
+        case .settings: "离开前检查未保存设置"
         }
     }
     private var confirmLabel: String {
@@ -64,7 +79,31 @@ struct ReportConfirmationView: View {
         case .discard: "放弃草稿"
         case .close: "放弃并关闭"
         case .quit: "放弃并退出"
+        case .settings(.quit): "保存设置并放弃草稿退出"
+        case .settings:
+            confirmation.draftDays.isEmpty ? "保存更改并继续" : "保存更改并删除 \(confirmation.draftDays.count) 份草稿"
         }
+    }
+
+    private var explanation: String {
+        switch confirmation.kind {
+        case .settings(.quit):
+            "保存设置或放弃设置后都会退出，并放弃以下全部日报草稿。需保留的日报请取消后逐份保存；取消不提交任何设置。"
+        case .settings:
+            "保存常规设置后才切换时区并删除以下旧时区 \(confirmation.draftDays.count) 份草稿；保留目标时区、其他时区草稿和全部已保存日报。放弃设置编辑不删除日报草稿，取消不提交。"
+        default:
+            "需要保留的内容请返回编辑，逐份明确保存。放弃后这些草稿不会恢复。"
+        }
+    }
+
+    private var canDiscardSettings: Bool {
+        guard case .settings(let continuation) = confirmation.kind else { return false }
+        if case .stay = continuation { return false }
+        return true
+    }
+
+    private var discardSettingsLabel: String {
+        if case .settings(.quit) = confirmation.kind { "放弃设置与草稿并退出" } else { "放弃更改并继续" }
     }
 }
 

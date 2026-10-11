@@ -31,8 +31,10 @@ struct DailyReportView: View {
             idealHeight: AppWindowConfiguration.report.defaultSize.height,
             maxHeight: .infinity
         )
-        .sheet(item: Binding(get: { flow.confirmation }, set: {
-            if $0 == nil { flow.send(.cancelConfirmation) }
+        .sheet(item: Binding(get: {
+            flow.confirmation?.windowKind == .report ? flow.confirmation : nil
+        }, set: {
+            if $0 == nil, flow.confirmation?.windowKind == .report { flow.send(.cancelConfirmation) }
         })) { confirmation in
             ReportConfirmationView(flow: flow, confirmation: confirmation)
         }
@@ -87,6 +89,18 @@ struct DailyReportView: View {
             ContentUnavailableView("日报存储", systemImage: "externaldrive", description: Text(
                 flow.storageError == nil ? "正在打开本机日报数据库…" : "存储尚不可用，原数据已保留。修复后可重新打开日报窗口。"
             ))
+        } else if !flow.canEditSelectedReport {
+            ContentUnavailableView {
+                Label("报告时区无效", systemImage: "globe")
+            } description: {
+                Text("原固定时区已保留。请先修正常规设置；已有日报仍可从历史查看和编辑。")
+            } actions: {
+                Button("打开常规设置") {
+                    flow.send(.open(.settings))
+                    flow.send(.requestSettingsPage(.general))
+                }
+                .pointerStyle(.link)
+            }
         } else if flow.isPreview {
             ScrollView {
                 Text(SafeMarkdown.render(flow.body)).textSelection(.enabled)
@@ -96,8 +110,9 @@ struct DailyReportView: View {
             ZStack(alignment: .topLeading) {
                 let day = flow.selectedDay
                 let session = flow.openWindows[.report]
+                let revision = flow.reportEditRevision
                 TextEditor(text: Binding(get: { flow.body }, set: {
-                    if let session { flow.send(.editBody($0, day: day, session: session)) }
+                    if let session { flow.send(.editBody($0, day: day, session: session, revision: revision)) }
                 }))
                 .font(.system(.body, design: .monospaced)).focused($editorIsFocused)
                 .disabled(flow.isSaving).id(day)
@@ -122,8 +137,8 @@ struct DailyReportView: View {
             Spacer()
             if flow.isSaving { ProgressView().controlSize(.small) }
             Button(flow.isSaving ? "正在保存…" : "保存") { flow.send(.save) }
-                .buttonStyle(.borderedProminent).disabled(!flow.isStorageReady || flow.isSaving)
-                .pointerStyle(flow.isStorageReady && !flow.isSaving ? .link : .default)
+                .buttonStyle(.borderedProminent).disabled(!flow.isStorageReady || !flow.canEditSelectedReport || flow.isSaving)
+                .pointerStyle(flow.isStorageReady && flow.canEditSelectedReport && !flow.isSaving ? .link : .default)
         }
         .padding(16)
     }
@@ -145,7 +160,9 @@ struct DailyReportView: View {
             }
             .pointerStyle(.link)
             Spacer()
-            Text(flow.reportTimeZone.identifier).font(.caption).foregroundStyle(.secondary).help("当前报告时区")
+            Text(flow.effectiveTimeZoneIdentifier ?? "报告时区无效，请在设置中修正")
+                .font(.caption).foregroundStyle(flow.effectiveTimeZoneIdentifier == nil ? .red : .secondary)
+                .help("当前生效报告时区；历史记录保留其原有时区")
         }
         .padding(16)
     }

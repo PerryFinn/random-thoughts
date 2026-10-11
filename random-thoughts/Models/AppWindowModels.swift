@@ -22,6 +22,7 @@ enum AppWindowEffect: Equatable, Sendable {
     case minimizeReport
     case closeKeyWindow
     case closeReport(session: UUID)
+    case closeSettings(session: UUID)
     case restoreReportSize(CGSize, session: UUID)
     case quit
 }

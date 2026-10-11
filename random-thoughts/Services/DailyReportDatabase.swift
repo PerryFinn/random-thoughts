@@ -11,6 +11,7 @@ actor DailyReportDatabase: DailyReportStorage {
     func load() async throws -> ReportStorageSnapshot { try open().load() }
     func save(_ report: SavedDailyReport) async throws { try open().save(report) }
     func saveWindowSize(_ size: CGSize) async throws { try open().saveWindowSize(size) }
+    func saveGeneralSettings(_ settings: DailyReportGeneralSettings) async throws { try open().saveGeneralSettings(settings) }
 
     private func open() throws -> ReportSQLiteConnection {
         if let connection { return connection }
@@ -61,7 +62,7 @@ private nonisolated final class ReportSQLiteConnection {
             throw ReportStorageError.unavailable
         }
         if exists {
-            guard try integer("PRAGMA user_version") == 1 else { throw ReportStorageError.unsupportedVersion }
+            guard try integer("PRAGMA user_version") == 2 else { throw ReportStorageError.unsupportedVersion }
             guard try text("PRAGMA quick_check") == "ok" else { throw ReportStorageError.invalidData }
             try validateColumns("reports", expected: [
                 ("calendar_date", "TEXT", true, 1), ("time_zone", "TEXT", true, 2),
@@ -69,6 +70,11 @@ private nonisolated final class ReportSQLiteConnection {
             ])
             try validateColumns("window_state", expected: [
                 ("id", "INTEGER", false, 1), ("width", "REAL", true, 0), ("height", "REAL", true, 0)
+            ])
+            try validateColumns("general_settings", expected: [
+                ("id", "INTEGER", false, 1), ("time_zone_mode", "TEXT", true, 0),
+                ("fixed_time_zone", "TEXT", true, 0), ("output_language", "TEXT", true, 0),
+                ("generation_preferences", "TEXT", true, 0), ("history_lookback_days", "INTEGER", true, 0)
             ])
         }
         try execute("PRAGMA journal_mode=DELETE; PRAGMA synchronous=EXTRA; PRAGMA secure_delete=ON; PRAGMA temp_store=MEMORY")
@@ -86,7 +92,13 @@ private nonisolated final class ReportSQLiteConnection {
                     CREATE TABLE window_state (
                         id INTEGER PRIMARY KEY CHECK(id=1), width REAL NOT NULL, height REAL NOT NULL
                     ) STRICT;
-                    PRAGMA user_version=1;
+                    CREATE TABLE general_settings (
+                        id INTEGER PRIMARY KEY CHECK(id=1), time_zone_mode TEXT NOT NULL,
+                        fixed_time_zone TEXT NOT NULL, output_language TEXT NOT NULL,
+                        generation_preferences TEXT NOT NULL, history_lookback_days INTEGER NOT NULL
+                    ) STRICT;
+                    INSERT INTO general_settings VALUES(1,'followMac','Etc/UTC','chinese','',1);
+                    PRAGMA user_version=2;
                     """)
             }
         }
@@ -130,7 +142,22 @@ private nonisolated final class ReportSQLiteConnection {
                 guard try !next(query) else { throw ReportStorageError.invalidData }
             }
         }
-        return ReportStorageSnapshot(reports: reports, windowSize: size)
+        let settings = try statement("SELECT id,time_zone_mode,fixed_time_zone,output_language,generation_preferences,history_lookback_days FROM general_settings") { query in
+            guard try next(query), sqlite3_column_type(query, 0) == SQLITE_INTEGER, sqlite3_column_int64(query, 0) == 1,
+                  let mode = try ReportTimeZoneMode(rawValue: columnText(query, 1)),
+                  let language = try ReportOutputLanguage(rawValue: columnText(query, 3)),
+                  sqlite3_column_type(query, 5) == SQLITE_INTEGER else { throw ReportStorageError.invalidData }
+            let lookback = sqlite3_column_int64(query, 5)
+            guard (0...7).contains(lookback) else { throw ReportStorageError.invalidData }
+            let value = DailyReportGeneralSettings(
+                timeZoneMode: mode, fixedTimeZoneIdentifier: try columnText(query, 2),
+                outputLanguage: language, generationPreferences: try columnText(query, 4),
+                historyLookbackDays: Int(lookback)
+            )
+            guard try !next(query) else { throw ReportStorageError.invalidData }
+            return value
+        }
+        return ReportStorageSnapshot(reports: reports, windowSize: size, generalSettings: settings)
     }
 
     func save(_ report: SavedDailyReport) throws {
@@ -164,6 +191,22 @@ private nonisolated final class ReportSQLiteConnection {
                 guard sqlite3_bind_double(query, 1, size.width) == SQLITE_OK,
                       sqlite3_bind_double(query, 2, size.height) == SQLITE_OK,
                       sqlite3_step(query) == SQLITE_DONE else { throw ReportStorageError.writeFailed }
+            }
+        }
+    }
+
+    func saveGeneralSettings(_ settings: DailyReportGeneralSettings) throws {
+        guard settings.validationError == nil else { throw ReportStorageError.invalidData }
+        try transaction {
+            try statement("UPDATE general_settings SET time_zone_mode=?,fixed_time_zone=?,output_language=?,generation_preferences=?,history_lookback_days=? WHERE id=1") { query in
+                try bind(settings.timeZoneMode.rawValue, to: query, at: 1)
+                try bind(settings.fixedTimeZoneIdentifier, to: query, at: 2)
+                try bind(settings.outputLanguage.rawValue, to: query, at: 3)
+                try bind(settings.generationPreferences, to: query, at: 4)
+                guard sqlite3_bind_int(query, 5, Int32(settings.historyLookbackDays)) == SQLITE_OK,
+                      sqlite3_step(query) == SQLITE_DONE, sqlite3_changes(database) == 1 else {
+                    throw ReportStorageError.writeFailed
+                }
             }
         }
     }

@@ -22,10 +22,12 @@ final class AppWindowCoordinator: NSObject, NSWindowDelegate {
         let notifications = NSWorkspace.shared.notificationCenter
         notifications.addObserver(self, selector: #selector(systemWillSleep), name: NSWorkspace.willSleepNotification, object: nil)
         notifications.addObserver(self, selector: #selector(systemDidWake), name: NSWorkspace.didWakeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(systemTimeZoneChanged), name: .NSSystemTimeZoneDidChange, object: nil)
     }
 
     deinit {
         NSWorkspace.shared.notificationCenter.removeObserver(self)
+        NotificationCenter.default.removeObserver(self)
     }
 
     func perform(_ effect: AppWindowEffect) {
@@ -42,6 +44,8 @@ final class AppWindowCoordinator: NSObject, NSWindowDelegate {
             NSApplication.shared.keyWindow?.performClose(nil)
         case .closeReport(let session):
             if windows[.report]?.session == session { windows[.report]?.controller.window?.close() }
+        case .closeSettings(let session):
+            if windows[.settings]?.session == session { windows[.settings]?.controller.window?.close() }
         case .restoreReportSize(let size, let session):
             if windows[.report]?.session == session, let window = windows[.report]?.controller.window {
                 restoreReportSize(size, window: window)
@@ -52,8 +56,12 @@ final class AppWindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard let report = windows[.report], report.controller.window === sender else { return true }
-        flow?.send(.requestCloseReport(report.session))
+        guard let entry = windows.first(where: { $0.value.controller.window === sender }) else { return true }
+        if entry.key == .report {
+            flow?.send(.requestCloseReport(entry.value.session))
+        } else {
+            flow?.send(.requestCloseSettings(entry.value.session))
+        }
         return false
     }
 
@@ -121,6 +129,7 @@ final class AppWindowCoordinator: NSObject, NSWindowDelegate {
                 content = AnyView(DailyReportView(flow: flow))
             case .settings:
                 content = AnyView(SettingsView(
+                    flow: flow,
                     intelligenceContent: AnyView(IntelligenceSettingsView(store: store)),
                     proximityContent: AnyView(ProximitySettingsView(store: proximityStore))
                 ))
@@ -167,5 +176,9 @@ final class AppWindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     @objc private func systemWillSleep() { flow?.send(.systemSleep) }
-    @objc private func systemDidWake() { flow?.send(.systemWake) }
+    @objc private func systemDidWake() {
+        systemTimeZoneChanged()
+        flow?.send(.systemWake)
+    }
+    @objc private func systemTimeZoneChanged() { flow?.send(.systemTimeZoneChanged(.current)) }
 }

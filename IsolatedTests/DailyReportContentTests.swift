@@ -10,7 +10,7 @@ struct DailyReportContentTests {
         flow.send(.open(.report))
         await flow.waitForStorage()
         let session = try #require(flow.openWindows[.report])
-        flow.send(.editBody("确认放弃", day: flow.selectedDay, session: session))
+        flow.send(.editBody("确认放弃", day: flow.selectedDay, session: session, revision: flow.reportEditRevision))
         await environment.storage.holdNextSave()
         flow.send(.normalReportSizeChanged(CGSize(width: 1200, height: 800), session: session))
         await environment.storage.waitUntilSaveIsHeld()
@@ -29,18 +29,18 @@ struct DailyReportContentTests {
         await flow.waitForStorage()
         let day = flow.selectedDay
         let session = try #require(flow.openWindows[.report])
-        flow.send(.editBody("已保存基线", day: day, session: session))
+        flow.send(.editBody("已保存基线", day: day, session: session, revision: flow.reportEditRevision))
         flow.send(.save)
         await flow.waitForStorage()
         await environment.storage.holdNextSave()
         flow.send(.normalReportSizeChanged(CGSize(width: 1200, height: 800), session: session))
         await environment.storage.waitUntilSaveIsHeld()
         flow.send(.quit)
-        flow.send(.editBody("有效修改", day: day, session: session))
+        flow.send(.editBody("有效修改", day: day, session: session, revision: flow.reportEditRevision))
         flow.send(.quit)
         #expect(flow.confirmation?.draftDays == [day])
         flow.send(.cancelConfirmation)
-        flow.send(.editBody("已保存基线", day: day, session: session))
+        flow.send(.editBody("已保存基线", day: day, session: session, revision: flow.reportEditRevision))
         #expect(!flow.hasDraft)
         await environment.storage.releaseSave()
         await flow.waitForStorage()
@@ -58,7 +58,7 @@ struct DailyReportContentTests {
         flow.send(.normalReportSizeChanged(CGSize(width: 1200, height: 800), session: session))
         await environment.storage.waitUntilSaveIsHeld()
         flow.send(.quit)
-        flow.send(.editBody("等待期间的新草稿", day: flow.selectedDay, session: session))
+        flow.send(.editBody("等待期间的新草稿", day: flow.selectedDay, session: session, revision: flow.reportEditRevision))
         await environment.storage.releaseSave()
         await flow.waitForStorage()
         #expect(!environment.effects.contains(.quit))
@@ -74,7 +74,7 @@ struct DailyReportContentTests {
         flow.send(.open(.report))
         await flow.waitForStorage()
         let session = try #require(flow.openWindows[.report])
-        if hasDraft { flow.send(.editBody("需确认放弃", day: flow.selectedDay, session: session)) }
+        if hasDraft { flow.send(.editBody("需确认放弃", day: flow.selectedDay, session: session, revision: flow.reportEditRevision)) }
         let finalSize = CGSize(width: 1200, height: 800)
         await environment.storage.holdNextSave()
         flow.send(.normalReportSizeChanged(finalSize, session: session))
@@ -120,7 +120,7 @@ struct DailyReportContentTests {
         let blockedFlow = blocked.makeFlow()
         blockedFlow.send(.open(.report))
         await blockedFlow.waitForStorage()
-        blockedFlow.send(.editBody("不得创建", day: blockedFlow.selectedDay, session: try #require(blockedFlow.openWindows[.report])))
+        blockedFlow.send(.editBody("不得创建", day: blockedFlow.selectedDay, session: try #require(blockedFlow.openWindows[.report]), revision: blockedFlow.reportEditRevision))
         #expect(!blockedFlow.isStorageReady)
         #expect(blockedFlow.storageError == .occupied)
         #expect(!blockedFlow.hasDraft)
@@ -130,11 +130,11 @@ struct DailyReportContentTests {
         flow.send(.open(.report))
         await flow.waitForStorage()
         let session = try #require(flow.openWindows[.report])
-        flow.send(.editBody("明确保存的版本", day: flow.selectedDay, session: session))
+        flow.send(.editBody("明确保存的版本", day: flow.selectedDay, session: session, revision: flow.reportEditRevision))
         await environment.storage.holdNextSave()
         flow.send(.save)
         await environment.storage.waitUntilSaveIsHeld()
-        flow.send(.editBody("提交期间不能替换", day: flow.selectedDay, session: session))
+        flow.send(.editBody("提交期间不能替换", day: flow.selectedDay, session: session, revision: flow.reportEditRevision))
         flow.send(.requestCloseReport(session))
         flow.send(.quit)
         #expect(flow.isSaving)
@@ -154,7 +154,7 @@ struct DailyReportContentTests {
         await flow.waitForStorage()
         let day = flow.selectedDay
         let session = try #require(flow.openWindows[.report])
-        flow.send(.editBody("已保存的正文", day: day, session: session))
+        flow.send(.editBody("已保存的正文", day: day, session: session, revision: flow.reportEditRevision))
         flow.send(.save)
         await flow.waitForStorage()
         flow.send(.normalReportSizeChanged(CGSize(width: 1234, height: 789), session: session))
@@ -189,15 +189,15 @@ struct DailyReportContentTests {
         await flow.waitForStorage()
         let first = flow.selectedDay
         let session = try #require(flow.openWindows[.report])
-        flow.send(.editBody("第一份", day: first, session: session))
+        flow.send(.editBody("第一份", day: first, session: session, revision: flow.reportEditRevision))
         let other = ReportDay(date: environment.now, timeZone: TimeZone(identifier: "Asia/Shanghai")!)
         flow.send(.selectReportDay(other))
-        flow.send(.editBody("第二份", day: other, session: session))
+        flow.send(.editBody("第二份", day: other, session: session, revision: flow.reportEditRevision))
         flow.send(.requestCloseReport(session))
         let obsolete = try #require(flow.confirmation?.id)
         #expect(Set(flow.confirmation?.draftDays ?? []) == [first, other])
         #expect(!environment.effects.contains(.closeReport(session: session)))
-        flow.send(.editBody("第二份修订", day: other, session: session))
+        flow.send(.editBody("第二份修订", day: other, session: session, revision: flow.reportEditRevision))
         flow.send(.confirm(obsolete))
         #expect(!environment.effects.contains(.closeReport(session: session)))
         flow.send(.cancelConfirmation)
@@ -219,7 +219,7 @@ struct DailyReportContentTests {
         flow.send(.windowClosed(.report, session: session))
         #expect(flow.draftDays.isEmpty)
         flow.send(.open(.report))
-        flow.send(.editBody("迟到的旧编辑", day: first, session: session))
+        flow.send(.editBody("迟到的旧编辑", day: first, session: session, revision: flow.reportEditRevision))
         #expect(flow.body.isEmpty)
         #expect(!flow.hasDraft)
     }
@@ -231,19 +231,19 @@ struct DailyReportContentTests {
         await flow.waitForStorage()
         let day = flow.selectedDay
         let session = try #require(flow.openWindows[.report])
-        flow.send(.editBody("原文\n", day: day, session: session))
+        flow.send(.editBody("原文\n", day: day, session: session, revision: flow.reportEditRevision))
         flow.send(.save)
         await flow.waitForStorage()
         let original = try #require(flow.savedReports[day])
 
-        flow.send(.editBody("原文 \n", day: day, session: session))
+        flow.send(.editBody("原文 \n", day: day, session: session, revision: flow.reportEditRevision))
         #expect(flow.hasDraft)
-        flow.send(.editBody("原文\n", day: day, session: session))
+        flow.send(.editBody("原文\n", day: day, session: session, revision: flow.reportEditRevision))
         #expect(!flow.hasDraft)
-        flow.send(.editBody("修改一\n", day: day, session: session))
+        flow.send(.editBody("修改一\n", day: day, session: session, revision: flow.reportEditRevision))
         flow.send(.save)
         let obsolete = try #require(flow.confirmation?.id)
-        flow.send(.editBody("修改二\n", day: day, session: session))
+        flow.send(.editBody("修改二\n", day: day, session: session, revision: flow.reportEditRevision))
         let refreshed = try #require(flow.confirmation)
         #expect(refreshed.id != obsolete)
         #expect(refreshed.markdown == "修改二\n")
@@ -290,7 +290,7 @@ struct DailyReportContentTests {
         flow.send(.moveDate(1))
         let raw = "# 任意标题\n\n 合成手写秘密 RAW_SECRET_23\u{0}👩🏽‍💻  \n"
         let session = try #require(flow.openWindows[.report])
-        flow.send(.editBody(raw, day: flow.selectedDay, session: session))
+        flow.send(.editBody(raw, day: flow.selectedDay, session: session, revision: flow.reportEditRevision))
         flow.send(.copyMarkdown)
         #expect(environment.copies == [raw])
         environment.now = Date(timeIntervalSince1970: 2_000)
@@ -310,14 +310,14 @@ struct DailyReportContentTests {
         let today = flow.selectedDay
         let session = try #require(flow.openWindows[.report])
 
-        flow.send(.editBody("  手写 👩🏽‍💻\n", day: today, session: session))
+        flow.send(.editBody("  手写 👩🏽‍💻\n", day: today, session: session, revision: flow.reportEditRevision))
         #expect(flow.body == "  手写 👩🏽‍💻\n")
         #expect(flow.hasDraft)
         flow.send(.moveDate(1))
         #expect(flow.body.isEmpty)
         #expect(!flow.hasDraft)
         flow.send(.selectReportDay(today))
-        flow.send(.editBody("", day: today, session: session))
+        flow.send(.editBody("", day: today, session: session, revision: flow.reportEditRevision))
         #expect(flow.hasDraft)
         #expect(flow.draftDays == [today])
         flow.send(.hide)
@@ -332,6 +332,7 @@ final class ReportFlowTestEnvironment {
     var now = Date(timeIntervalSince1970: 1_000)
     var effects: [AppWindowEffect] = []
     var copies: [String] = []
+    var contextEffects: [ReportContextEffect] = []
 
     func makeFlow(timeZone: TimeZone = TimeZone(identifier: "Etc/UTC")!) -> DailyReportFlow {
         DailyReportFlow(
@@ -339,6 +340,7 @@ final class ReportFlowTestEnvironment {
             now: { self.now },
             timeZone: timeZone,
             performWindowEffect: { self.effects.append($0) },
+            performContextEffect: { self.contextEffects.append($0) },
             recordWindowMode: { _ in },
             copyMarkdown: { self.copies.append($0) }
         )
@@ -346,7 +348,7 @@ final class ReportFlowTestEnvironment {
 }
 
 actor ControlledReportStorage: DailyReportStorage {
-    private var snapshot = ReportStorageSnapshot(reports: [], windowSize: nil)
+    private var snapshot = ReportStorageSnapshot(reports: [], windowSize: nil, generalSettings: DailyReportGeneralSettings())
     private var saveFailure = false
     private var loadFailure: ReportStorageError?
     private var holdsNextSave = false
@@ -370,6 +372,12 @@ actor ControlledReportStorage: DailyReportStorage {
         snapshot.windowSize = size
     }
 
+    func saveGeneralSettings(_ settings: DailyReportGeneralSettings) async throws {
+        await waitForSaveIfHeld()
+        if saveFailure { throw ReportStorageError.writeFailed }
+        snapshot.generalSettings = settings
+    }
+
     private func waitForSaveIfHeld() async {
         if holdsNextSave {
             holdsNextSave = false
@@ -381,6 +389,7 @@ actor ControlledReportStorage: DailyReportStorage {
         }
     }
     func failSaves(_ value: Bool) { saveFailure = value }
+    func setGeneralSettings(_ value: DailyReportGeneralSettings) { snapshot.generalSettings = value }
     func failLoads(_ error: ReportStorageError) { loadFailure = error }
     func holdNextSave() { holdsNextSave = true }
     func waitUntilSaveIsHeld() async {
