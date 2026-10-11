@@ -6,6 +6,22 @@ import Testing
 
 @MainActor
 struct DailyReportLayoutTests {
+    @Test func sourceDrawerAndLongSessionListsFitTheMinimumReportWithoutAWindow() async throws {
+        let environment = ReportFlowTestEnvironment()
+        let sessions = (0..<40).map { syntheticCandidate("会话 \($0) " + String(repeating: "很长标题", count: 30),
+                                                        directory: "/synthetic/project/worktree-\($0)") }
+        let flow = try await prepareSessionFlow(environment, sessions: sessions)
+        let drawer = NSHostingView(rootView: DailyReportSourcesView(flow: flow).frame(width: 300, height: 420))
+        #expect(drawer.fittingSize == NSSize(width: 300, height: 420))
+        #expect(drawer.window == nil)
+        let report = NSHostingView(rootView: DailyReportView(flow: flow).frame(width: 900, height: 620))
+        #expect(report.fittingSize == NSSize(width: 900, height: 620))
+        #expect(report.window == nil)
+        flow.send(.toggleHistory)
+        report.layoutSubtreeIfNeeded()
+        #expect(report.fittingSize == NSSize(width: 900, height: 620))
+    }
+
     @Test func dataSourceEditorAndDiagnosticsFitTheFixedSettingsWindowWithoutAWindow() async throws {
         let environment = ReportFlowTestEnvironment()
         let flow = environment.makeFlow()
@@ -87,6 +103,8 @@ struct DailyReportLayoutTests {
             performContextEffect: { _ in },
             recordWindowMode: { _ in },
             recordCodexCheck: { _ in },
+            recordSessionScan: { _ in },
+            redactCredentials: { $0 },
             copyMarkdown: { _ in }
         )
         let defaultView = NSHostingView(rootView: DailyReportView(flow: flow))

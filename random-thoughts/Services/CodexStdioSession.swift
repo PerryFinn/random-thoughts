@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 // Pipe I/O belongs to one worker; the lock serializes process startup, cancellation and cleanup.
-nonisolated final class CodexStdioCheck: @unchecked Sendable {
+nonisolated final class CodexStdioSession: @unchecked Sendable {
     private let process = Process()
     private let input = Pipe()
     private let output = Pipe()
@@ -32,32 +32,8 @@ nonisolated final class CodexStdioCheck: @unchecked Sendable {
         if process.isRunning { kill(process.processIdentifier, SIGKILL) }
     }
 
-    func run() throws -> CodexVersion? {
-        defer { close() }
-        do {
-            lock.lock()
-            defer { lock.unlock() }
-            if let interruption { throw interruption }
-            // Suppress SIGPIPE on this pipe only; a disappearing child must not terminate the application.
-            guard fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1) == 0 else { throw CodexSourceError.launchFailed }
-            try process.run()
-            try? input.fileHandleForReading.close()
-            try? output.fileHandleForWriting.close()
-        } catch {
-            throw (error as? CodexSourceError) ?? .launchFailed
-        }
-        let deadline = DispatchSource.makeTimerSource()
-        deadline.schedule(deadline: .now() + timeout)
-        deadline.setEventHandler { [self] in cancel(.timedOut) }
-        deadline.resume()
-        defer { deadline.cancel() }
-        do {
-            let initialized = try request("initialize", id: 1, params: [
-                "clientInfo": ["name": "random_thoughts", "title": "随想", "version": "1.0.0"],
-                "capabilities": ["experimentalApi": false]
-            ])
-            guard let userAgent = initialized["userAgent"] as? String else { throw CodexSourceError.schemaUnsupported }
-            try send(["method": "initialized", "params": [:]])
+    func check() throws -> CodexVersion? {
+        try perform(useOperationDeadline: true) { userAgent in
             var firstID: String?
             for (index, archived) in [false, true].enumerated() {
                 let result = try request("thread/list", id: index + 2, params: ["archived": archived, "limit": 1])
@@ -75,15 +51,101 @@ nonisolated final class CodexStdioCheck: @unchecked Sendable {
                     throw CodexSourceError.schemaUnsupported
                 }
             }
-            try checkInterruption()
             return CodexVersion.fromUserAgent(userAgent)
+        }
+    }
+
+    func scan(day: ReportDay) throws -> CodexSessionScan {
+        try perform(useOperationDeadline: false) { userAgent in
+            var requestID = 2
+            var listed: [CodexSessionContent.Metadata] = []
+            var seenIDs: Set<String> = []
+            for archived in [false, true] {
+                var cursor: String?
+                var seenCursors: Set<String> = []
+                repeat {
+                    var params: [String: Any] = ["archived": archived, "limit": 100, "modelProviders": [String](),
+                        "sourceKinds": ["cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview",
+                                        "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown"]]
+                    if let cursor { params["cursor"] = cursor }
+                    let result = try request("thread/list", id: requestID, params: params)
+                    requestID += 1
+                    guard let threads = result["data"] as? [[String: Any]], nullableString(result["nextCursor"]) else {
+                        throw CodexSourceError.schemaUnsupported
+                    }
+                    for thread in threads {
+                        let id = try validateThread(thread)
+                        if seenIDs.insert(id).inserted {
+                            let metadata = CodexSessionContent.metadata(thread)
+                            if metadata.origin != nil { listed.append(metadata) }
+                        }
+                    }
+                    cursor = result["nextCursor"] as? String
+                    if let cursor, !seenCursors.insert(cursor).inserted { throw CodexSourceError.schemaUnsupported }
+                } while cursor != nil
+            }
+            var sessions: [CodexCandidateSession] = []
+            var failures: [CodexSessionFailure] = []
+            for metadata in listed {
+                do {
+                    let result = try request("thread/read", id: requestID, params: ["threadId": metadata.id, "includeTurns": true])
+                    guard let thread = result["thread"] as? [String: Any], try validateThread(thread) == metadata.id else {
+                        throw CodexSourceError.schemaUnsupported
+                    }
+                    if let candidate = try CodexSessionContent.candidate(thread, listed: metadata, day: day) { sessions.append(candidate) }
+                } catch CodexSourceError.readFailed {
+                    failures.append(CodexSessionFailure(id: metadata.id, title: metadata.title,
+                                                       workDirectory: metadata.workDirectory, error: .readFailed))
+                }
+                requestID += 1
+            }
+            guard failures.isEmpty || !sessions.isEmpty else { throw CodexSourceError.readFailed }
+            return CodexSessionScan(sessions: sessions, failures: failures, version: CodexVersion.fromUserAgent(userAgent))
+        }
+    }
+
+    private func perform<Result>(useOperationDeadline: Bool, _ body: (String) throws -> Result) throws -> Result {
+        defer { close() }
+        do {
+            lock.lock()
+            defer { lock.unlock() }
+            if let interruption { throw interruption }
+            guard fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1) == 0 else { throw CodexSourceError.launchFailed }
+            try process.run()
+            try? input.fileHandleForReading.close()
+            try? output.fileHandleForWriting.close()
+        } catch {
+            throw (error as? CodexSourceError) ?? .launchFailed
+        }
+        let deadline = useOperationDeadline ? makeDeadline() : nil
+        defer { deadline?.cancel() }
+        do {
+            let initialized = try request("initialize", id: 1, params: [
+                "clientInfo": ["name": "random_thoughts", "title": "随想", "version": "1.0.0"],
+                "capabilities": ["experimentalApi": false]
+            ])
+            guard let userAgent = initialized["userAgent"] as? String else { throw CodexSourceError.schemaUnsupported }
+            try send(["method": "initialized", "params": [:]])
+            let result = try body(userAgent)
+            try checkInterruption()
+            return result
         } catch {
             try checkInterruption()
             throw (error as? CodexSourceError) ?? .transportInterrupted
         }
     }
 
+    private func makeDeadline() -> DispatchSourceTimer {
+        let timer = DispatchSource.makeTimerSource()
+        timer.schedule(deadline: .now() + timeout)
+        timer.setEventHandler { [self] in cancel(.timedOut) }
+        timer.resume()
+        return timer
+    }
+
     private func request(_ method: String, id: Int, params: [String: Any]) throws -> [String: Any] {
+        let deadline = makeDeadline()
+        defer { deadline.cancel() }
         try send(["method": method, "id": id, "params": params])
         while true {
             let line = try readLine()

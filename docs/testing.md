@@ -1,6 +1,6 @@
 # 构建与隔离测试
 
-本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#25](https://github.com/PerryFinn/random-thoughts/issues/25) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。
+本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#26](https://github.com/PerryFinn/random-thoughts/issues/26) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。
 
 ## 命令
 
@@ -28,7 +28,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 
 ## 复用实现与外部边界
 
-SwiftPM 的 `random_thoughts` 库直接编译清单列出的生产 Swift 文件，Xcode 应用继续编译这些文件，业务实现不复制。清单只纳入可隔离实现；生产 `@main`、应用 Delegate、AppKit 窗口操作、蓝牙及系统操作 Adapter 不在测试产物中。`DailyReportFlow` 的动作／状态接口供日报界面和主要业务测试共用；窗口系统动作注入受控接收器，原生内容通过 `NSHostingView` 测量且不创建窗口。#23 接入内存草稿与真实 SQLite，扫描和生成由后续票接入。窗口及内容边界详见 [daily-report-windows.md](daily-report-windows.md) 与 [daily-report-content.md](daily-report-content.md)。
+SwiftPM 的 `random_thoughts` 库直接编译清单列出的生产 Swift 文件，Xcode 应用继续编译这些文件，业务实现不复制。清单只纳入可隔离实现；生产 `@main`、应用 Delegate、AppKit 窗口操作、蓝牙及系统操作 Adapter 不在测试产物中。`DailyReportFlow` 的动作／状态接口供日报界面和主要业务测试共用；窗口系统动作注入受控接收器，原生内容通过 `NSHostingView` 测量且不创建窗口。#23 接入内存草稿与真实 SQLite，#26 接入候选扫描、选择与内存快照，生成由后续票接入。窗口、内容及扫描边界详见 [daily-report-windows.md](daily-report-windows.md)、[daily-report-content.md](daily-report-content.md) 与 [codex-session-scan.md](codex-session-scan.md)。
 
 模型刷新作为既有行为的验证样本：Store 显式接收服务、UserDefaults、时钟和调度，服务显式接收 URLSession。只有生产组合传入真实会话及系统时间，测试组合使用合成传输和受控时间。构造 Store 不启动刷新；受控调度用明确屏障推进，失败保留旧状态且不改用生产依赖。
 
@@ -229,3 +229,54 @@ code-review 固定起点为本票开始时的 `f88a832e3b11fbe82518fa49c46cf3e24
 删除了数据源页占位分支和流程旧初始化签名，所有生产、隔离及旧宿主测试调用方一起更新；没有保留兼容入口、私有 JSONL 或常驻进程路径。未删除用户数据库、数据或完整源文件。schema 3 拒绝旧库并保留原文件，不迁移、不自动重建。
 
 未执行：生产应用启动、旧宿主／UI 测试执行、真实文件选择／设置窗口／sheet／键盘／滚动与系统交互、截图、macOS 26.5 人工验收、真实 Codex／AI、会话扫描／生成、OSLog 持久化及父规格性能／语义验收。真实读取闭环由 #35 承接，当前替身检查不代表真实 Codex 已验收。
+
+## #26 验证记录（2026-10-11）
+
+起点为 `f36669b15306d04bf00eae477e8ae9c6619d0061`，工作区干净，当前分支已有 12 个未推送提交；本票只追加本地实现，不推送、不关闭 Issue。实时核对 GitHub #25 仍开放，#26 原生 `blocked_by` 仍指向 #25，远端 main 为 `123948d`；按用户指定的本地依赖继续，不把本地完成当远端解除阻塞。
+
+实际环境：macOS 26.6（25G72）、Xcode 26.6（17F113）、Swift 6.3.3、Apple Silicon；生产最低版本仍为 26.5，没有增加外部依赖或改变 SQLite schema。
+
+| 实际命令 | 结果 |
+| --- | --- |
+| `rtk proxy ./script/build.sh` | `BUILD SUCCEEDED`，生产 Debug 纯构建。只有既有的 AppIntents 元数据跳过提示，没有新增 Swift 警告。 |
+| `rtk proxy ./script/test-isolated.sh` | 首次 20 个 suite、98 项；评审修复后 20 个 suite、101 项测试通过，隔离目标编译无警告。 |
+| `rtk proxy ./script/test-isolated.sh --filter CodexSessionFlowTests` | 初版 8 项动作／状态回归通过。 |
+| `rtk proxy ./script/test-isolated.sh --filter 'CodexSessionWireTests\|CodexScanLockTests'` | 初版 2 个 suite、9 项测试通过；包含 9 个协议故障和 3 个锁等待结束参数用例。 |
+| `rtk proxy ./script/test-isolated.sh --filter 'CodexSessionFlowTests\|CodexSessionWireTests'` | 评审修复后 2 个 suite、18 项通过，含新增正式用户来源、迟到检查和锁失败状态回归。 |
+| `rtk proxy ./script/test-isolated.sh --filter CodexSessionPrivacyTests` | 真实 stdio → 流程 → 快照 → SQLite／偏好／日志对象隐私集成通过。 |
+| `rtk proxy ./script/test-isolated.sh --filter DailyReportTelemetryTests` | 4 项真实 CocoaLumberjack 对象捕获／注册测试通过，使用独立日志实例及 `flushLog()`。 |
+| `rtk proxy ./script/test-isolated.sh --filter 'CodexSessionFlowTests\|DailyReportLayoutTests'` | 先验证 13 项（7 项流程、6 项布局），后来新增取消流程回归随全套通过；不创建 NSWindow。 |
+| `rtk proxy git diff --check` | 通过。 |
+
+旧宿主及 UI 调用方另外只编译，不执行或启动应用：
+
+```bash
+rtk proxy env DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project random-thoughts.xcodeproj -scheme random-thoughts \
+  -configuration Debug -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath .build/DerivedData CODE_SIGNING_ALLOWED=NO build-for-testing
+```
+
+结果为 `TEST BUILD SUCCEEDED`。旧宿主编译仍有未修改的 `ProximityLockTests` 的 4 条 MainActor／Equatable 警告，以及本次 Xcode 解析打包测试框架的 2 条工具提示和 AppIntents 提示；没有执行旧宿主或 UI 测试。
+
+| 层级 | 证据 | 验证行为 |
+| --- | --- | --- |
+| U | `scanningSelectsUserSessionsAndConfirmationFreezesTheInputWithoutReadingAgain`、`bulkAndGroupSelectionAskBeforeUnknownSourcesAndRefreshResetsTheirTrust` | 用户默认全选、未知默认不选，全选／分组／单会话经风险确认；刷新保留旧快照，重新确认才替换，不额外重读。 |
+| U | `changingTheSelectionInvalidatesAnEarlierUnknownSourceApproval` | 改变选择后旧风险确认不能重新纳入会话。 |
+| U | `scanningReplacesAnInFlightCheckAndRejectsItsLaterContradictoryResult`、`lockFailuresShowAScanErrorWithoutChangingSourceAvailability` | 扫描替代尚未完成的基础检查，迟到矛盾结果不能覆盖；两种锁失败保留未检查／可用能力状态，仅显示扫描错误。 |
+| U | `savingANewSourceRejectsLateScansAndPreservesTheSnapshotDraftAndReport`、`actualCloseReleasesAllSourceMaterialAndRejectsTheOldWindowCallback`、`cancellingAScanKeepsSourceAvailabilityAndItsSnapshotAndShowsACancelledResult` | 来源代次、窗口结束、取消隔离旧扫描；快照／草稿／日报按规定保留或释放，不误报来源不可用。 |
+| U | `confirmingMasksHighConfidenceCredentialsAndKeepsOrdinaryNamesAndPaths`、`redactionFailureStillConfirmsAndKeepsSuccessfulRedactionsInOtherFields` | 固定前遮盖鉴权值、Key 与私钥；保留自然路径／姓名／邮箱，遮盖失败可继续且保留其他字段的遮盖。 |
+| I | `realWirePagesBothListsPrefersCurrentAndFiltersTurnsAtTheDSTBoundary`、`completeEmptyScanIsAvailableAndTheFallDSTDayIncludesBothRepeatedHours` | 两列表分页／ID 去重／当前优先、目录／worktree 分开、标题后备；23／25 小时日及午夜半开边界，无日期／未来内容排除，背景保留原日期与时区。 |
+| I | `mixedWireKeepsOnlyOrderedTextAndFinalAnswersAndNeverReadsInternalSources` | 顺序 text、仅 final_answer、空用户正文排除；元数据、非文本、工具、reasoning、缺失／未知阶段排除，内部来源不可纳入。 |
+| I | `explicitUserClassificationsKeepInteractiveSourcesSelectedWithoutTrustingUnknownSources`、合成 probe 的逐页参数检查 | 正式 `threadSource=user` 不误判已识别用户来源；未知来源自报 user 不升级信任，每页以空 modelProviders 避免默认供应商筛选。custom 合成项仅验证本地分类，固定上游列表不能返回该类型，范围限制见扫描契约。 |
+| I | `aCompleteRangeAllowsOnlyReadableCandidatesToBeConfirmedAsAPartialScan`、`incompleteRangesAndUnsupportedContractsCannotBecomeSnapshotsOrRetryIndefinitely` | 部分成功显式列失败项；列表不全、全不可读、必要 schema／方法／参数／itemsView、循环游标均拒绝新快照；不把部分扫描当降级成功。 |
+| I | `anInterruptedScanRestartsOnceAndReturnsOnlyTheCompleteSecondAttempt`、`cancellingARealScanReapsItsChildAndDoesNotRestartIt` | 仅传输／超时整次至多一次重启，取消不重启且回收自己的子进程。 |
+| I | `anotherProcessSerializesTheSameSourceAndWaitingCanEndWithoutStartingAChild`、`aDifferentSourceDoesNotQueueBehindAnotherProcess` | 使用生产 flock 的独立进程持锁；同源等待／取消／截止不抢锁，不启动第二个子进程；不同身份独立。FIFO／stdin 屏障，无任意测试 sleep。 |
+| I | `realWireThroughTheFlowKeepsSnapshotsOutOfSQLitePreferencesAndLogObjects`、`scanTelemetryContainsOnlyOutcomesAndAggregateCounts` | 真实 wire 经统一流程，扫描材料不入库／偏好／日志对象；只保存用户明确正文，遥测只含固定结果和聚合数量，关闭不恢复或隐式重扫。 |
+| L | `sourceDrawerAndLongSessionListsFitTheMinimumReportWithoutAWindow` | 长标题／多目录抽屉、历史展开／折叠在 900×620 内适配，正文与底部操作保留空间，无 NSWindow。 |
+
+文档先更新，流程／wire／锁／遮盖／布局／遥测接口缺失先红再实现；旧未知来源确认与取消结果的行为回归也先观察失败再修复。旧专用 `CodexStdioCheck.swift` 替换为共用 `CodexStdioSession.swift`，所有生产、隔离及旧宿主调用方一起更新，没有兼容入口、私有 JSONL 或常驻子进程。未删除或重置用户数据库与数据。
+
+code-review 固定起点为 `f36669b15306d04bf00eae477e8ae9c6619d0061`，提交前双轴独立评审本次暂存差异，不包含此前 12 个未推送提交。Standards 初审与复核均为 0 项硬性违反、0 项可行动气味。Spec 初审发现 1 项 P1 和 3 项 P2：默认供应商过滤漏会话、正式 user 来源误判、旧基础检查覆盖扫描结果、锁失败误报来源不可用；各项均先观察回归失败再修复，复核为 0 项未解决问题、0 项新增缺失／错误／范围扩张。修复后的相关 18 项与全套 101 项均通过，生产纯构建再次为 `BUILD SUCCEEDED`；固定上游 custom 范围限制已记录，没有扩展读取路径。
+
+未执行：生产应用启动、旧宿主／UI 测试执行、原生窗口／抽屉／sheet 的实际点击、键盘、滚动、聚焦与系统交互、截图、macOS 26.5 人工验收、真实 Codex／AI、OSLog 落盘、父规格的性能与语义验收。真实 Codex 读取闭环仍由 #35 承接，隔离 wire 不代表真实 Codex 已验收。

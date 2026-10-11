@@ -9,7 +9,7 @@ struct CodexStdioTests {
     @Test func aMissingEntryAtLaunchReturnsAFixedErrorWithoutFallback() async throws {
         let environment = try IsolatedTestEnvironment()
         defer { environment.close() }
-        let reader = CodexDataSourceReader(homeDirectory: environment.directory, environment: [:], homebrewDirectories: [])
+        let reader = CodexDataSourceReader(homeDirectory: environment.directory, environment: [:], homebrewDirectories: [], scanLockDirectory: environment.directory.appendingPathComponent("locks"))
         let identity = CodexSourceIdentity(executablePath: environment.directory.appendingPathComponent("missing-codex").path,
                                            dataDirectory: environment.directory.path)
         await #expect(throws: CodexSourceError.launchFailed) { _ = try await reader.check(identity) }
@@ -24,7 +24,7 @@ struct CodexStdioTests {
         let binary = try #require(ProcessInfo.processInfo.environment["RANDOM_THOUGHTS_CODEX_PROBE"])
         let reader = CodexDataSourceReader(homeDirectory: environment.directory,
                                           environment: ["RANDOM_THOUGHTS_TEST_ROOT": try #require(ProcessInfo.processInfo.environment["RANDOM_THOUGHTS_TEST_ROOT"])],
-                                          homebrewDirectories: [])
+                                          homebrewDirectories: [], scanLockDirectory: environment.directory.appendingPathComponent("locks"))
         let version = try await reader.check(CodexSourceIdentity(executablePath: binary, dataDirectory: environment.directory.path))
         #expect(version?.description == (scenario == "old-version" ? "0.1.0" : scenario == "no-version" ? nil : "9.8.7"))
         try expectChildWasReaped(in: environment.directory)
@@ -37,7 +37,7 @@ struct CodexStdioTests {
         try JSONSerialization.data(withJSONObject: ["scenario": scenario]).write(to: environment.directory.appendingPathComponent("fixture.json"))
         let reader = CodexDataSourceReader(homeDirectory: environment.directory,
                                           environment: ["RANDOM_THOUGHTS_TEST_ROOT": try #require(ProcessInfo.processInfo.environment["RANDOM_THOUGHTS_TEST_ROOT"])],
-                                          homebrewDirectories: [], timeout: scenario == "timeout" ? 1 : 5)
+                                          homebrewDirectories: [], timeout: scenario == "timeout" ? 1 : 5, scanLockDirectory: environment.directory.appendingPathComponent("locks"))
         let binary = try #require(ProcessInfo.processInfo.environment["RANDOM_THOUGHTS_CODEX_PROBE"])
         let expected: CodexSourceError
         switch scenario {
@@ -70,7 +70,7 @@ struct CodexStdioTests {
         }
         let reader = CodexDataSourceReader(homeDirectory: environment.directory,
                                           environment: ["RANDOM_THOUGHTS_TEST_ROOT": try #require(ProcessInfo.processInfo.environment["RANDOM_THOUGHTS_TEST_ROOT"])],
-                                          homebrewDirectories: [])
+                                          homebrewDirectories: [], scanLockDirectory: environment.directory.appendingPathComponent("locks"))
         let identity = CodexSourceIdentity(executablePath: try #require(ProcessInfo.processInfo.environment["RANDOM_THOUGHTS_CODEX_PROBE"]),
                                            dataDirectory: environment.directory.path)
         let operation = Task { try await reader.check(identity) }

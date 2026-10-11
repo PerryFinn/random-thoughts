@@ -335,6 +335,8 @@ final class ReportFlowTestEnvironment {
     var copies: [String] = []
     var contextEffects: [ReportContextEffect] = []
     var codexEvents: [CodexCheckEvent] = []
+    var scanEvents: [CodexScanEvent] = []
+    var redact: @Sendable (String) throws -> String = { $0 }
 
     func makeFlow(timeZone: TimeZone = TimeZone(identifier: "Etc/UTC")!) -> DailyReportFlow {
         DailyReportFlow(
@@ -346,6 +348,8 @@ final class ReportFlowTestEnvironment {
             performContextEffect: { self.contextEffects.append($0) },
             recordWindowMode: { _ in },
             recordCodexCheck: { self.codexEvents.append($0) },
+            recordSessionScan: { self.scanEvents.append($0) },
+            redactCredentials: self.redact,
             copyMarkdown: { self.copies.append($0) }
         )
     }

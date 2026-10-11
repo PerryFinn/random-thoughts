@@ -73,6 +73,7 @@ struct ReportConfirmationView: View {
         case .settings: "离开前检查未保存设置"
         case .codexSettings(.quit): "退出前检查数据源设置和全部草稿（\(confirmation.draftDays.count) 份）"
         case .codexSettings: "离开前检查未保存数据源"
+        case .unknownSources: "纳入未知来源会话"
         }
     }
     private var confirmLabel: String {
@@ -86,6 +87,7 @@ struct ReportConfirmationView: View {
             confirmation.draftDays.isEmpty ? "保存更改并继续" : "保存更改并删除 \(confirmation.draftDays.count) 份草稿"
         case .codexSettings(.quit): "保存来源并放弃草稿退出"
         case .codexSettings: "保存并检查后继续"
+        case .unknownSources: "仅本次纳入"
         }
     }
 
@@ -97,6 +99,8 @@ struct ReportConfirmationView: View {
             "保存常规设置后才切换时区并删除以下旧时区 \(confirmation.draftDays.count) 份草稿；保留目标时区、其他时区草稿和全部已保存日报。放弃设置编辑不删除日报草稿，取消不提交。"
         case .codexSettings:
             "保存数据源后立即检查，检查失败仍保留新选择。已有快照、草稿和已保存日报保留；放弃更改只撤销数据源编辑。"
+        case .unknownSources:
+            "这些会话的来源尚未识别，可能包含后台任务或其他噪声。确认仅纳入当前报告日的本次选择；刷新后须重新选择，不形成长期信任。"
         default:
             "需要保留的内容请返回编辑，逐份明确保存。放弃后这些草稿不会恢复。"
         }

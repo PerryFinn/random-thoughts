@@ -249,13 +249,15 @@ struct RandomThoughtsTests {
         DailyReportFlow(
             storage: DailyReportDatabase(directory: FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString, isDirectory: true)),
-            codexSourceAccess: CodexDataSourceReader(homeDirectory: URL(fileURLWithPath: "/synthetic"), environment: [:], homebrewDirectories: []),
+            codexSourceAccess: CodexDataSourceReader(homeDirectory: URL(fileURLWithPath: "/synthetic"), environment: [:], homebrewDirectories: [], scanLockDirectory: URL(fileURLWithPath: "/synthetic/locks")),
             now: { Date(timeIntervalSince1970: 0) },
             timeZone: TimeZone(secondsFromGMT: 0)!,
             performWindowEffect: { _ in },
             performContextEffect: { _ in },
             recordWindowMode: { _ in },
             recordCodexCheck: { _ in },
+            recordSessionScan: { _ in },
+            redactCredentials: { $0 },
             copyMarkdown: { _ in }
         )
     }

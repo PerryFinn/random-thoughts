@@ -11,14 +11,31 @@ struct DailyReportView: View {
             VStack(spacing: 0) {
                 dateNavigation
                 Divider()
-                editorToolbar
-                if let error = flow.storageError {
-                    Text(error.message)
-                        .font(.callout).foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 20).padding(.bottom, 8)
+                HStack(spacing: 0) {
+                    VStack(spacing: 0) {
+                        editorToolbar
+                        if let error = flow.storageError {
+                            Text(error.message)
+                                .font(.callout).foregroundStyle(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 20).padding(.bottom, 8)
+                        }
+                        if flow.confirmedSnapshot?.redactionFailed == true {
+                            Text("凭据遮盖未能全部完成；快照仍可使用，但可能保留秘密。")
+                                .font(.callout).foregroundStyle(.orange)
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20)
+                        }
+                        if flow.sourceSelectionNeedsConfirmation {
+                            Text("来源已变化；既有快照保留，新选择须重新确认。")
+                                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 20)
+                        }
+                        content.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    if flow.isSourceDrawerVisible {
+                        Divider()
+                        DailyReportSourcesView(flow: flow).frame(width: 300)
+                    }
                 }
-                content.frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
                 footer
             }
@@ -117,9 +134,12 @@ struct DailyReportView: View {
                 .font(.system(.body, design: .monospaced)).focused($editorIsFocused)
                 .disabled(flow.isSaving).id(day)
                 if flow.body.isEmpty, !flow.hasDraft, flow.savedReports[day] == nil, !editorIsFocused {
-                    Button("开始手写工作日报") { editorIsFocused = true }
-                        .padding(10).disabled(flow.isSaving)
-                        .pointerStyle(flow.isSaving ? .default : .link)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button("开始手写工作日报") { editorIsFocused = true }
+                            .disabled(flow.isSaving).pointerStyle(flow.isSaving ? .default : .link)
+                        Button("打开来源会话") { flow.send(.showSources) }.pointerStyle(.link)
+                    }
+                    .padding(10)
                 }
             }
             .padding(.horizontal, 20).padding(.bottom, 12)
@@ -160,9 +180,13 @@ struct DailyReportView: View {
             }
             .pointerStyle(.link)
             Spacer()
+            Button("来源（\(flow.selectedSessionIDs.count)）") {
+                flow.send(flow.isSourceDrawerVisible ? .hideSources : .showSources)
+            }
+            .pointerStyle(.link)
             Text(flow.effectiveTimeZoneIdentifier ?? "报告时区无效，请在设置中修正")
                 .font(.caption).foregroundStyle(flow.effectiveTimeZoneIdentifier == nil ? .red : .secondary)
-                .help("当前生效报告时区；历史记录保留其原有时区")
+                .lineLimit(1).help("当前生效报告时区；历史记录保留其原有时区")
         }
         .padding(16)
     }

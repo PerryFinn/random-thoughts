@@ -40,6 +40,12 @@ final class CodexDataSourceStore {
     func revert() { edit = saved.configuration; storageError = nil }
     func waitForCheck() async { await checkTask?.value }
 
+    func scanFinished(result: CodexSessionScan?, error: CodexSourceError?) {
+        guard error != .scanLockTimedOut, error != .scanLockUnavailable else { return }
+        status = result == nil ? .unavailable : .available
+        self.error = error
+    }
+
     func save(rediscover: Bool, after previous: Task<Void, Never>?, completion: @escaping (Bool) -> Void) -> Task<Void, Never> {
         let configuration = edit
         storageError = nil

@@ -92,6 +92,7 @@ nonisolated struct ReportConfirmation: Identifiable, Sendable {
         case quit
         case settings(ReportSettingsContinuation)
         case codexSettings(ReportSettingsContinuation)
+        case unknownSources
     }
 
     let id = UUID()

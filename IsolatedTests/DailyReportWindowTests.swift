@@ -129,6 +129,8 @@ private final class WindowTestEnvironment {
             performContextEffect: { _ in },
             recordWindowMode: { self.modes.append($0) },
             recordCodexCheck: { _ in },
+            recordSessionScan: { _ in },
+            redactCredentials: { $0 },
             copyMarkdown: { _ in }
         )
     }

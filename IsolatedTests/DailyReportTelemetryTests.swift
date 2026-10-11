@@ -5,6 +5,33 @@ import Testing
 
 @MainActor
 struct DailyReportTelemetryTests {
+    @Test func scanTelemetryContainsOnlyOutcomesAndAggregateCounts() {
+        let log = DDLog()
+        let memory = MemoryWindowLogger()
+        log.add(memory)
+        let telemetry = DailyReportTelemetry(log: log)
+        for result: CodexScanEvent.Result in [.complete, .partial, .failure, .cancelled] {
+            telemetry.sessionScanFinished(CodexScanEvent(result: result, candidates: 3, succeeded: 2, failed: 1))
+        }
+        log.flushLog()
+        let messages = memory.snapshot()
+        #expect(messages.map(\.message) == [
+            "session_scan_finished result=complete candidates=3 succeeded=2 failed=1",
+            "session_scan_finished result=partial candidates=3 succeeded=2 failed=1",
+            "session_scan_finished result=failure candidates=3 succeeded=2 failed=1",
+            "session_scan_finished result=cancelled candidates=3 succeeded=2 failed=1"
+        ])
+        for message in messages {
+            #expect(message.messageFormat == "session_scan_finished result=%@ candidates=%d succeeded=%d failed=%d")
+            #expect(message.file == "DailyReports")
+            #expect(message.function == "session_scan_finished")
+            #expect(message.line == 0)
+            #expect(message.context == 0)
+            #expect(message.representedObject == nil)
+        }
+        #expect(memory.logFormatter == nil)
+    }
+
     @Test func codexDiagnosticsOnlyLogFixedCodesAndParsedNumericVersions() {
         let log = DDLog()
         let memory = MemoryWindowLogger()
@@ -69,7 +96,7 @@ struct DailyReportTelemetryTests {
     }
 }
 
-private final class MemoryWindowLogger: DDAbstractLogger, @unchecked Sendable {
+final class MemoryWindowLogger: DDAbstractLogger, @unchecked Sendable {
     private let lock = NSLock()
     private var messages: [DDLogMessage] = []
 

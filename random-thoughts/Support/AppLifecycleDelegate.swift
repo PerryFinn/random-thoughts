@@ -27,7 +27,8 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
                 .appendingPathComponent("com.perryfinn.random-thoughts/DailyReports", isDirectory: true)),
             codexSourceAccess: CodexDataSourceReader(
                 homeDirectory: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment,
-                homebrewDirectories: [URL(fileURLWithPath: "/opt/homebrew/bin"), URL(fileURLWithPath: "/usr/local/bin")]
+                homebrewDirectories: [URL(fileURLWithPath: "/opt/homebrew/bin"), URL(fileURLWithPath: "/usr/local/bin")],
+                scanLockDirectory: FileManager.default.temporaryDirectory.appendingPathComponent("com.perryfinn.random-thoughts/CodexScanLocks")
             ),
             now: { Date() },
             timeZone: .current,
@@ -35,6 +36,8 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             performContextEffect: { _ in },
             recordWindowMode: { telemetry.windowModeChanged($0) },
             recordCodexCheck: { telemetry.codexCheckFinished($0) },
+            recordSessionScan: { telemetry.sessionScanFinished($0) },
+            redactCredentials: CredentialRedaction.redact,
             copyMarkdown: { markdown in
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(markdown, forType: .string)

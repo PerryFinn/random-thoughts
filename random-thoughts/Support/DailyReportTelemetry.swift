@@ -27,9 +27,16 @@ struct DailyReportTelemetry {
              event: .codexCheck)
     }
 
+    func sessionScanFinished(_ event: CodexScanEvent) {
+        emit(format: "session_scan_finished result=%@ candidates=%d succeeded=%d failed=%d",
+             text: "session_scan_finished result=\(event.result.rawValue) candidates=\(event.candidates) succeeded=\(event.succeeded) failed=\(event.failed)",
+             event: .sessionScan)
+    }
+
     private enum Event: String {
         case windowMode = "window_mode_changed"
         case codexCheck = "codex_check_finished"
+        case sessionScan = "session_scan_finished"
     }
 
     private func emit(format: String, text: String, event: Event) {

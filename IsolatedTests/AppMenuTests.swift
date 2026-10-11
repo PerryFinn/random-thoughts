@@ -15,6 +15,8 @@ struct AppMenuTests {
             performContextEffect: { _ in },
             recordWindowMode: { _ in },
             recordCodexCheck: { _ in },
+            recordSessionScan: { _ in },
+            redactCredentials: { $0 },
             copyMarkdown: { _ in }
         )
         var keyWindow: AppWindowKind? = .settings

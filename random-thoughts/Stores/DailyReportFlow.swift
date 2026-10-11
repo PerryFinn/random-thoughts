@@ -40,6 +40,14 @@ final class DailyReportFlow {
         case rediscoverCodexSource
         case revertCodexSource
         case cancelCodexCheck
+        case showSources
+        case hideSources
+        case scanSessions
+        case cancelSessionScan
+        case selectSession(String, Bool)
+        case selectSessionGroup(String?, Bool)
+        case selectAllSessions(Bool)
+        case confirmSessionSelection
     }
 
     private(set) var openWindows: [AppWindowKind: UUID] = [:]
@@ -60,6 +68,7 @@ final class DailyReportFlow {
     private(set) var settingsStorageError: ReportStorageError?
     private(set) var settingsNotice: String?
     private(set) var reportEditRevision: UInt64 = 0
+    private(set) var isSourceDrawerVisible = false
     private var macTimeZone: TimeZone
     private var pendingMacTimeZone: TimeZone?
     private var drafts: [ReportDay: Draft] = [:]
@@ -75,6 +84,23 @@ final class DailyReportFlow {
     var codexSourceError: CodexSourceError? { codexSourceStore.error }
     var codexSourceStorageError: ReportStorageError? { codexSourceStore.storageError }
     var hasCodexSourceEdits: Bool { codexSourceStore.hasEdits }
+    var sessionScan: CodexSessionScan? { sessionStore.scan(for: selectedDay) }
+    var selectedSessionIDs: Set<String> { sessionStore.selectedIDs(for: selectedDay) }
+    var confirmedSnapshot: CodexSessionSnapshot? { sessionStore.snapshot(for: selectedDay) }
+    var sessionScanError: CodexSourceError? { sessionStore.error(for: selectedDay) }
+    var isScanningSessions: Bool { sessionStore.activeDay != nil }
+    var sessionScanActivity: CodexScanActivity { sessionStore.activity }
+    var isConfirmingSessions: Bool { sessionStore.isConfirming }
+    var sourceSelectionNeedsConfirmation: Bool { sessionStore.needsConfirmation(for: selectedDay) }
+    var canScanSessions: Bool { canUseReportTimeZone && !isSaving && !isConfirmingSessions && !isScanningSessions && codexSource.identity != nil }
+    var canConfirmSessionSelection: Bool { sessionScan != nil && !selectedSessionIDs.isEmpty && !isScanningSessions && !isConfirmingSessions && !isSaving && confirmation == nil }
+    var sessionGroups: [CodexSessionGroup] {
+        let sessions = sessionScan?.sessions ?? []
+        let directories = Set(sessions.compactMap(\.workDirectory)).sorted()
+        return (directories.map(Optional.some) + (sessions.contains { $0.workDirectory == nil } ? [nil] : [])).map { directory in
+            CodexSessionGroup(directory: directory, sessions: sessions.filter { $0.workDirectory == directory })
+        }
+    }
     var effectiveReportTimeZone: TimeZone? { generalSettings.effectiveTimeZone(macTimeZone: macTimeZone) }
     var effectiveTimeZoneIdentifier: String? { effectiveReportTimeZone.map(Self.timeZoneIdentifier) }
     var canUseReportTimeZone: Bool { isStorageReady && effectiveReportTimeZone != nil }
@@ -92,7 +118,7 @@ final class DailyReportFlow {
     var draftDays: [ReportDay] {
         drafts.keys.sorted { ($0.calendarDate, $0.timeZoneIdentifier) < ($1.calendarDate, $1.timeZoneIdentifier) }
     }
-    var canTerminate: Bool { !isSaving && pendingSizeWrites == 0 && drafts.isEmpty && !hasGeneralSettingsEdits && !hasCodexSourceEdits && !isCheckingCodexSource }
+    var canTerminate: Bool { !isSaving && pendingSizeWrites == 0 && drafts.isEmpty && !hasGeneralSettingsEdits && !hasCodexSourceEdits && !isCheckingCodexSource && !isScanningSessions && !isConfirmingSessions }
     var historyDays: [ReportDay] {
         Set(savedReports.keys).union(drafts.keys).sorted {
             ($0.calendarDate, $0.timeZoneIdentifier) > ($1.calendarDate, $1.timeZoneIdentifier)
@@ -120,6 +146,7 @@ final class DailyReportFlow {
     @ObservationIgnored private var storageTask: Task<Void, Never>?
     @ObservationIgnored private var quitTask: Task<Void, Never>?
     private let codexSourceStore: CodexDataSourceStore
+    private let sessionStore: CodexSessionStore
 
     init(
         storage: any DailyReportStorage,
@@ -130,6 +157,8 @@ final class DailyReportFlow {
         performContextEffect: @escaping (ReportContextEffect) -> Void,
         recordWindowMode: @escaping (AppWindowMode) -> Void,
         recordCodexCheck: @escaping (CodexCheckEvent) -> Void,
+        recordSessionScan: @escaping (CodexScanEvent) -> Void,
+        redactCredentials: @escaping @Sendable (String) throws -> String,
         copyMarkdown: @escaping (String) -> Void
     ) {
         self.storage = storage
@@ -140,9 +169,14 @@ final class DailyReportFlow {
         self.performContextEffect = performContextEffect
         self.recordWindowMode = recordWindowMode
         self.copyMarkdown = copyMarkdown
+        let sessionStore = CodexSessionStore(access: codexSourceAccess, redact: redactCredentials, record: recordSessionScan)
+        self.sessionStore = sessionStore
         codexSourceStore = CodexDataSourceStore(
             storage: storage, access: codexSourceAccess, now: now,
-            sourceChanged: { performContextEffect(.codexSourceChanged(revision: $0)) }, record: recordCodexCheck
+            sourceChanged: {
+                sessionStore.sourceChanged()
+                performContextEffect(.codexSourceChanged(revision: $0))
+            }, record: recordCodexCheck
         )
     }
 
@@ -152,6 +186,7 @@ final class DailyReportFlow {
     }
 
     func waitForCodexCheck() async { await codexSourceStore.waitForCheck() }
+    func waitForSessionScan() async { await sessionStore.wait() }
 
     func send(_ action: Action) {
         switch action {
@@ -168,6 +203,8 @@ final class DailyReportFlow {
             openWindows.removeValue(forKey: kind)
             if kind == .report {
                 drafts.removeAll()
+                sessionStore.clear()
+                isSourceDrawerVisible = false
                 if confirmation?.windowKind == .report { confirmation = nil }
             } else {
                 generalSettingsEdit = generalSettings
@@ -205,10 +242,12 @@ final class DailyReportFlow {
             applyMode()
         case .selectDate(let date):
             guard !isSaving else { return }
+            sessionStore.cancel()
             selectedDay = ReportDay(date: date, timeZone: reportTimeZone)
             if confirmation?.windowKind == .report { confirmation = nil }
         case .moveDate(let offset):
             guard !isSaving else { return }
+            sessionStore.cancel()
             if let date = selectedDay.calendar.date(byAdding: .day, value: offset, to: selectedDate) {
                 selectedDay = ReportDay(date: date, timeZone: reportTimeZone)
                 if confirmation?.windowKind == .report { confirmation = nil }
@@ -217,6 +256,7 @@ final class DailyReportFlow {
             isHistoryVisible.toggle()
         case .selectReportDay(let day):
             guard !isSaving else { return }
+            sessionStore.cancel()
             selectedDay = day
             if confirmation?.windowKind == .report { confirmation = nil }
         case .editBody(let markdown, let day, let session, let revision):
@@ -256,6 +296,7 @@ final class DailyReportFlow {
             case .close(let session):
                 guard openWindows[.report] == session else { return }
                 drafts.removeAll()
+                sessionStore.clear()
                 performWindowEffect(.closeReport(session: session))
             case .quit:
                 drafts.removeAll()
@@ -268,10 +309,13 @@ final class DailyReportFlow {
             case .codexSettings(let continuation):
                 guard openWindows[.settings] != nil, pending.codexConfiguration == codexSourceEdit else { return }
                 saveCodexSource(rediscover: false, continuation: continuation)
+            case .unknownSources:
+                sessionStore.acceptUnknown(day: selectedDay)
             }
         case .cancelConfirmation:
             guard confirmation != nil else { return }
             confirmation = nil
+            sessionStore.cancelUnknown()
             quitTask?.cancel()
             quitTask = nil
         case .requestDiscardDraft:
@@ -280,6 +324,7 @@ final class DailyReportFlow {
         case .requestCloseReport(let session):
             guard !isSaving, openWindows[.report] == session else { return }
             if drafts.isEmpty {
+                sessionStore.clear()
                 performWindowEffect(.closeReport(session: session))
             } else {
                 setConfirmation(.close(session))
@@ -388,12 +433,51 @@ final class DailyReportFlow {
             if case .codexSettings = confirmation?.kind { confirmation = nil }
         case .cancelCodexCheck:
             codexSourceStore.cancelCheck()
+        case .showSources:
+            guard openWindows[.report] != nil else { return }
+            isSourceDrawerVisible = true
+        case .hideSources:
+            isSourceDrawerVisible = false
+        case .scanSessions:
+            startSessionScan()
+        case .cancelSessionScan:
+            sessionStore.cancel()
+        case .selectSession(let id, let included):
+            selectSessions([id], included: included)
+        case .selectSessionGroup(let directory, let included):
+            selectSessions(Set(sessionScan?.sessions.filter { $0.workDirectory == directory }.map(\.id) ?? []), included: included)
+        case .selectAllSessions(let included):
+            selectSessions(Set(sessionScan?.sessions.map(\.id) ?? []), included: included)
+        case .confirmSessionSelection:
+            guard openWindows[.report] != nil, canConfirmSessionSelection else { return }
+            sessionStore.confirm(day: selectedDay) { self.isSourceDrawerVisible = false }
         }
+    }
+
+    private func startSessionScan() {
+        guard canUseReportTimeZone, !isSaving, openWindows[.report] != nil, let identity = codexSource.identity else { return }
+        codexSourceStore.cancelCheck()
+        if case .unknownSources = confirmation?.kind { confirmation = nil }
+        let revision = codexSourceStore.revision
+        sessionStore.start(source: identity, day: selectedDay) { result, failure in
+            guard revision == self.codexSourceStore.revision else { return }
+            self.codexSourceStore.scanFinished(result: result, error: failure)
+        }
+    }
+
+    private func selectSessions(_ ids: Set<String>, included: Bool) {
+        guard openWindows[.report] != nil else { return }
+        if case .unknownSources = confirmation?.kind {
+            confirmation = nil
+            sessionStore.cancelUnknown()
+        }
+        if sessionStore.select(ids, included: included, day: selectedDay) { setConfirmation(.unknownSources) }
     }
 
     private func quitAfterPendingSizeWrites() {
         guard pendingSizeWrites > 0 else {
             codexSourceStore.cancelCheck()
+            sessionStore.clear()
             performWindowEffect(.quit)
             return
         }
@@ -438,6 +522,8 @@ final class DailyReportFlow {
                 kind: kind, previousMarkdown: nil, markdown: nil,
                 draftDays: quitting ? draftDays : [], codexConfiguration: codexSourceEdit
             )
+        case .unknownSources:
+            confirmation = ReportConfirmation(kind: kind, previousMarkdown: nil, markdown: nil, draftDays: [])
         }
     }
 
@@ -552,7 +638,10 @@ final class DailyReportFlow {
         isSaving = true
         storageTask = codexSourceStore.save(rediscover: rediscover, after: storageTask) { success in
             self.finishSaving()
-            if success { self.completeSettingsContinuation(continuation) }
+            if success {
+                if case .unknownSources = self.confirmation?.kind { self.confirmation = nil }
+                self.completeSettingsContinuation(continuation)
+            }
         }
     }
 
@@ -578,11 +667,13 @@ final class DailyReportFlow {
     private func switchReportTimeZone(from previous: String?, discarding days: [ReportDay]) {
         reportEditRevision += 1
         if let previous { performContextEffect(.cancelTimeZoneTasks(previous, revision: reportEditRevision)) }
+        if let previous { sessionStore.clear(timeZone: previous) }
         for day in days { drafts.removeValue(forKey: day) }
         if let timeZone = effectiveReportTimeZone {
             selectedDay = (try? ReportDay(calendarDate: selectedDay.calendarDate, timeZoneIdentifier: Self.timeZoneIdentifier(timeZone)))
                 ?? ReportDay(date: now(), timeZone: timeZone)
             if openWindows[.report] != nil { performContextEffect(.rescan(selectedDay, revision: reportEditRevision)) }
+            if openWindows[.report] != nil { startSessionScan() }
         }
         confirmation = nil
     }

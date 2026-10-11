@@ -11,8 +11,11 @@ struct SyntheticCodexServer {
               environment["CODEX_SQLITE_HOME"] == home,
               FileManager.default.currentDirectoryPath == home else { exit(2) }
         let directory = URL(fileURLWithPath: home)
-        let fixture = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("fixture.json"))) as? [String: String]
-        let scenario = fixture?["scenario"] ?? "success"
+        let fixture = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("fixture.json"))) as? [String: Any] ?? [:]
+        let scenario = fixture["scenario"] as? String ?? "success"
+        let countURL = directory.appendingPathComponent("launches")
+        let count = ((try? String(contentsOf: countURL, encoding: .utf8)).flatMap(Int.init) ?? 0) + 1
+        try Data(String(count).utf8).write(to: countURL)
         try Data(String(getpid()).utf8).write(to: directory.appendingPathComponent("pid"))
         try FileHandle.standardError.write(contentsOf: Data(String(repeating: "STDERR_SECRET_25", count: 10_000).utf8))
         if scenario == "blocked" {
@@ -44,6 +47,18 @@ struct SyntheticCodexServer {
                 acknowledged = true
             } else {
                 guard acknowledged, let id else { exit(6) }
+                if scenario == "scan" {
+                    let fault = fixture["fault"] as? String ?? ""
+                    if method == "thread/list", fault == "transport-always" || (fault == "transport-once" && count == 1) { return }
+                    if method == "thread/list", fault == "blocked" {
+                        let ready = try FileHandle(forWritingTo: directory.appendingPathComponent("scan-ready"))
+                        try ready.write(contentsOf: Data([1]))
+                        try ready.close()
+                        while true { pause() }
+                    }
+                    try scanRequest(method, id: id, params: params, fixture: fixture)
+                    continue
+                }
                 try emit(["method": "synthetic/notice", "params": ["marker": "NOTIFICATION_SECRET_25"]])
                 if method == "thread/list" {
                     guard params["archived"] is Bool, params["limit"] as? Int == 1 else { exit(7) }
@@ -71,6 +86,41 @@ struct SyntheticCodexServer {
                 } else { exit(9) }
             }
         }
+    }
+
+    private static func scanRequest(_ method: String, id: Int, params: [String: Any], fixture: [String: Any]) throws {
+        if method == "thread/list" {
+            guard let archived = params["archived"] as? Bool, params["limit"] as? Int == 100,
+                  params["modelProviders"] as? [String] == [],
+                  params["sourceKinds"] as? [String] == ["cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview",
+                                                        "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown"] else { exit(10) }
+            let fault = fixture["fault"] as? String ?? ""
+            if fault == "timeout-always" { while true { pause() } }
+            if fault == "method" || fault == "parameters" || (fault == "list-failure" && archived) {
+                try emit(["id": id, "error": ["code": fault == "method" ? -32601 : fault == "parameters" ? -32602 : -32000,
+                                             "message": "LIST_ERROR_SECRET_26"]])
+                return
+            }
+            let pages = fixture[archived ? "archivedPages" : "currentPages"] as? [[[String: Any]]] ?? [[]]
+            let page = (params["cursor"] as? String).flatMap(Int.init) ?? 0
+            guard pages.indices.contains(page) else { exit(11) }
+            let listed = pages[page].map { thread in
+                var thread = thread
+                thread["turns"] = []
+                if fault == "schema" { thread.removeValue(forKey: "source") }
+                return thread
+            }
+            let cursor: Any = fault == "cursor-loop" ? "0" : page + 1 < pages.count ? String(page + 1) as Any : NSNull()
+            try emit(["id": id, "result": ["data": listed, "nextCursor": cursor]])
+        } else if method == "thread/read" {
+            if let threadID = params["threadId"] as? String, (fixture["readFailures"] as? [String] ?? []).contains(threadID) {
+                try emit(["id": id, "error": ["code": -32000, "message": "READ_ERROR_SECRET_26"]])
+                return
+            }
+            guard params["includeTurns"] as? Bool == true, let threadID = params["threadId"] as? String,
+                  let thread = (fixture["threads"] as? [String: [String: Any]])?[threadID] else { exit(12) }
+            try emit(["id": id, "result": ["thread": thread]])
+        } else { exit(13) }
     }
 
     private static func thread(scenario: String, includeTurns: Bool) -> [String: Any] {

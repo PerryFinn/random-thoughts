@@ -23,6 +23,18 @@ struct ReportStorageProbe {
     }
 
     private static func run(_ scenario: String, directory: URL) async throws {
+        if scenario == "hold-scan-lock" {
+            guard let executable = ProcessInfo.processInfo.environment["RANDOM_THOUGHTS_CODEX_PROBE"] else { throw ProbeError.failed }
+            try CodexScanLock.withLock(source: CodexSourceIdentity(executablePath: executable, dataDirectory: directory.path),
+                                      directory: directory.appendingPathComponent("locks"), timeout: 30,
+                                      checkCancellation: {}, onWait: {}) {
+                let ready = try FileHandle(forWritingTo: directory.appendingPathComponent("lock-ready"))
+                try ready.write(contentsOf: Data([1]))
+                try ready.close()
+                guard try FileHandle.standardInput.read(upToCount: 1)?.count == 1 else { throw ProbeError.failed }
+            }
+            return
+        }
         let url = directory.appendingPathComponent("reports.sqlite")
         if scenario == "open" {
             _ = try await DailyReportDatabase(directory: directory).load()

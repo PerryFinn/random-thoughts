@@ -6,12 +6,17 @@ nonisolated struct CodexDataSourceReader: CodexSourceAccess {
     private let environment: [String: String]
     private let homebrewDirectories: [URL]
     private let timeout: TimeInterval
+    private let scanLockDirectory: URL
+    private let scanLockTimeout: TimeInterval
 
-    init(homeDirectory: URL, environment: [String: String], homebrewDirectories: [URL], timeout: TimeInterval = 30) {
+    init(homeDirectory: URL, environment: [String: String], homebrewDirectories: [URL], timeout: TimeInterval = 30,
+         scanLockDirectory: URL, scanLockTimeout: TimeInterval = 30) {
         self.homeDirectory = homeDirectory
         self.environment = environment
         self.homebrewDirectories = homebrewDirectories
         self.timeout = timeout
+        self.scanLockDirectory = scanLockDirectory
+        self.scanLockTimeout = scanLockTimeout
     }
 
     func resolve(_ configuration: CodexDataSourceConfiguration, rediscover: Bool) async -> CodexSourceSelection {
@@ -44,11 +49,23 @@ nonisolated struct CodexDataSourceReader: CodexSourceAccess {
     }
 
     func check(_ source: CodexSourceIdentity) async throws -> CodexVersion? {
-        let operation = CodexStdioCheck(source: source, environment: environment, timeout: timeout)
+        let operation = CodexStdioSession(source: source, environment: environment, timeout: timeout)
         return try await withTaskCancellationHandler {
-            try await Task.detached(priority: .userInitiated) { try operation.run() }.value
+            try await Task.detached(priority: .userInitiated) { try operation.check() }.value
         } onCancel: {
             operation.cancel(.cancelled)
+        }
+    }
+
+    func scan(_ source: CodexSourceIdentity, day: ReportDay,
+              progress: @escaping @Sendable (CodexScanActivity) -> Void) async throws -> CodexSessionScan {
+        if let error = Self.executableError(source.executablePath) ?? Self.directoryError(source.dataDirectory) { throw error }
+        let operation = CodexScanOperation(source: source, environment: environment, timeout: timeout,
+                                           lockDirectory: scanLockDirectory, lockTimeout: scanLockTimeout)
+        return try await withTaskCancellationHandler {
+            try await Task.detached(priority: .userInitiated) { try operation.run(day: day, progress: progress) }.value
+        } onCancel: {
+            operation.cancel()
         }
     }
 

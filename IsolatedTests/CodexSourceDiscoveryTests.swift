@@ -19,7 +19,7 @@ struct CodexSourceDiscoveryTests {
         try FileManager.default.createSymbolicLink(atPath: alias.path, withDestinationPath: explicit.path)
         let binary = try #require(ProcessInfo.processInfo.environment["RANDOM_THOUGHTS_CODEX_PROBE"])
         var configuration = CodexDataSourceConfiguration(mode: .manual, executablePath: binary)
-        let reader = CodexDataSourceReader(homeDirectory: home, environment: ["CODEX_HOME": inherited.path], homebrewDirectories: [])
+        let reader = CodexDataSourceReader(homeDirectory: home, environment: ["CODEX_HOME": inherited.path], homebrewDirectories: [], scanLockDirectory: environment.directory.appendingPathComponent("locks"))
         #expect(await reader.resolve(configuration, rediscover: false).settings.resolvedDirectory == inherited.path)
         configuration.explicitDirectory = alias.path
         let selected = await reader.resolve(configuration, rediscover: false)
@@ -34,9 +34,9 @@ struct CodexSourceDiscoveryTests {
         #expect(invalid.settings.configuration == configuration)
         #expect(!FileManager.default.fileExists(atPath: missing))
         configuration.explicitDirectory = ""
-        let invalidInherited = CodexDataSourceReader(homeDirectory: home, environment: ["CODEX_HOME": ""], homebrewDirectories: [])
+        let invalidInherited = CodexDataSourceReader(homeDirectory: home, environment: ["CODEX_HOME": ""], homebrewDirectories: [], scanLockDirectory: environment.directory.appendingPathComponent("locks"))
         #expect(await invalidInherited.resolve(configuration, rediscover: false).error == .invalidDirectory)
-        let defaultReader = CodexDataSourceReader(homeDirectory: home, environment: [:], homebrewDirectories: [])
+        let defaultReader = CodexDataSourceReader(homeDirectory: home, environment: [:], homebrewDirectories: [], scanLockDirectory: environment.directory.appendingPathComponent("locks"))
         #expect(await defaultReader.resolve(configuration, rediscover: false).settings.resolvedDirectory == defaultDirectory.path)
         configuration.explicitDirectory = explicit.path
         #expect(chmod(explicit.path, 0) == 0)
@@ -56,7 +56,7 @@ struct CodexSourceDiscoveryTests {
             try FileManager.default.createSymbolicLink(atPath: directory.appendingPathComponent("codex").path,
                                                        withDestinationPath: try #require(ProcessInfo.processInfo.environment["RANDOM_THOUGHTS_CODEX_PROBE"]))
         }
-        let reader = CodexDataSourceReader(homeDirectory: home, environment: ["PATH": bundledDirectory.path + ":" + publicDirectory.path], homebrewDirectories: [])
+        let reader = CodexDataSourceReader(homeDirectory: home, environment: ["PATH": bundledDirectory.path + ":" + publicDirectory.path], homebrewDirectories: [], scanLockDirectory: environment.directory.appendingPathComponent("locks"))
         #expect(await reader.resolve(CodexDataSourceConfiguration(), rediscover: false).settings.configuration.executablePath == publicDirectory.appendingPathComponent("codex").path)
         var configuration = CodexDataSourceConfiguration(mode: .manual, executablePath: bundledDirectory.appendingPathComponent("codex").path)
         #expect(await reader.resolve(configuration, rediscover: false).error == .invalidExecutable)
@@ -85,7 +85,8 @@ struct CodexSourceDiscoveryTests {
         }
         try FileManager.default.createDirectory(at: home.appendingPathComponent(".codex"), withIntermediateDirectories: true)
         let reader = CodexDataSourceReader(homeDirectory: home, environment: ["PATH": "relative:" + directories[1].path],
-                                          homebrewDirectories: Array(directories.suffix(2)))
+                                          homebrewDirectories: Array(directories.suffix(2)),
+                                          scanLockDirectory: environment.directory.appendingPathComponent("locks"))
         var selection = await reader.resolve(CodexDataSourceConfiguration(), rediscover: false)
         #expect(selection.settings.identity == CodexSourceIdentity(executablePath: directories[0].appendingPathComponent("codex").path,
                                                                   dataDirectory: home.appendingPathComponent(".codex").path))

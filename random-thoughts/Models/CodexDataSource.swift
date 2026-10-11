@@ -78,6 +78,8 @@ nonisolated enum CodexSourceError: String, Error, Sendable, CaseIterable {
     case transportInterrupted = "transport_interrupted"
     case timedOut = "timed_out"
     case cancelled
+    case scanLockUnavailable = "scan_lock_unavailable"
+    case scanLockTimedOut = "scan_lock_timed_out"
 
     var message: String {
         switch self {
@@ -96,11 +98,23 @@ nonisolated enum CodexSourceError: String, Error, Sendable, CaseIterable {
         case .transportInterrupted: "Codex 检查进程或传输中断。当前选择已保留，可主动重新检查。"
         case .timedOut: "Codex 检查超过 30 秒。检查已结束，可主动重试。"
         case .cancelled: "检查已取消，当前选择及历史诊断保留。可主动重新检查。"
+        case .scanLockUnavailable: "无法取得本机扫描锁。请检查临时目录权限后重新扫描。"
+        case .scanLockTimedOut: "同一 Codex 数据源正被其他扫描使用，等待已满 30 秒。可以重新扫描；不会终止其他进程。"
         }
     }
 
     var isDirectoryError: Bool {
         [.directoryMissing, .invalidDirectory, .directoryPermission].contains(self)
+    }
+
+    var scanMessage: String {
+        switch self {
+        case .cancelled: "会话扫描已取消，既有快照保留。可以主动重新扫描。"
+        case .timedOut: "会话扫描超时，既有快照保留。可以主动重新扫描。"
+        case .transportInterrupted: "会话扫描进程或传输中断，既有快照保留。可以主动重新扫描。"
+        case .readFailed: "候选会话无法读取，未确认新的会话快照。请检查数据源后重新扫描。"
+        default: message
+        }
     }
 
     var isExecutableError: Bool {
@@ -123,4 +137,5 @@ nonisolated struct CodexCheckEvent: Equatable, Sendable {
 protocol CodexSourceAccess: Sendable {
     func resolve(_ configuration: CodexDataSourceConfiguration, rediscover: Bool) async -> CodexSourceSelection
     func check(_ source: CodexSourceIdentity) async throws -> CodexVersion?
+    func scan(_ source: CodexSourceIdentity, day: ReportDay, progress: @escaping @Sendable (CodexScanActivity) -> Void) async throws -> CodexSessionScan
 }
