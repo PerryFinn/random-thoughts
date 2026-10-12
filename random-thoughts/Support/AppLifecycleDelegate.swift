@@ -25,6 +25,7 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         flow = DailyReportFlow(
             storage: DailyReportDatabase(directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("com.perryfinn.random-thoughts/DailyReports", isDirectory: true)),
+            aiCredentials: AIServiceCredentialCipher.bundled(),
             codexSourceAccess: CodexDataSourceReader(
                 homeDirectory: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment,
                 homebrewDirectories: [URL(fileURLWithPath: "/opt/homebrew/bin"), URL(fileURLWithPath: "/usr/local/bin")],
@@ -37,10 +38,11 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             recordWindowMode: { telemetry.windowModeChanged($0) },
             recordCodexCheck: { telemetry.codexCheckFinished($0) },
             recordSessionScan: { telemetry.sessionScanFinished($0) },
+            recordAIStorage: { telemetry.storageFinished($0) },
             redactCredentials: CredentialRedaction.redact,
-            copyMarkdown: { markdown in
+            copyText: { text in
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(markdown, forType: .string)
+                NSPasteboard.general.setString(text, forType: .string)
             }
         )
         super.init()

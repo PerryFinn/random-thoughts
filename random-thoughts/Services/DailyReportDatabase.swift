@@ -14,6 +14,8 @@ actor DailyReportDatabase: DailyReportStorage {
     func save(_ report: SavedDailyReport) async throws { try open().save(report) }
     func saveWindowSize(_ size: CGSize) async throws { try open().saveWindowSize(size) }
     func saveGeneralSettings(_ settings: DailyReportGeneralSettings) async throws { try open().saveGeneralSettings(settings) }
+    func saveAIService(_ service: SavedAIService) async throws { try open().saveAIService(service) }
+    func saveCurrentAIService(_ service: AIServiceType) async throws { try open().saveCurrentAIService(service) }
     func saveCodexSource(_ settings: CodexDataSourceSettings) async throws { try open().saveCodexSource(settings) }
     func saveCodexDiagnostic(identity: CodexSourceIdentity, checkedAt: Date, version: CodexVersion?) async throws {
         try open().saveCodexDiagnostic(identity: identity, checkedAt: checkedAt, version: version)
@@ -68,7 +70,7 @@ private nonisolated final class ReportSQLiteConnection {
             throw ReportStorageError.unavailable
         }
         if exists {
-            guard try integer("PRAGMA user_version") == 3 else { throw ReportStorageError.unsupportedVersion }
+            guard try integer("PRAGMA user_version") == 4 else { throw ReportStorageError.unsupportedVersion }
             guard try text("PRAGMA quick_check") == "ok" else { throw ReportStorageError.invalidData }
             try validateColumns("reports", expected: [
                 ("calendar_date", "TEXT", true, 1), ("time_zone", "TEXT", true, 2),
@@ -88,6 +90,8 @@ private nonisolated final class ReportSQLiteConnection {
                 ("resolved_directory", "TEXT", false, 0), ("last_successful_check", "REAL", false, 0),
                 ("version", "TEXT", false, 0)
             ])
+            try validateColumns("ai_services", expected: [("protocol", "TEXT", true, 1), ("record", "TEXT", true, 0)])
+            try validateColumns("ai_selection", expected: [("id", "INTEGER", false, 1), ("protocol", "TEXT", false, 0)])
         }
         try execute("PRAGMA journal_mode=DELETE; PRAGMA synchronous=EXTRA; PRAGMA secure_delete=ON; PRAGMA temp_store=MEMORY")
         guard try text("PRAGMA journal_mode") == "delete",
@@ -116,8 +120,14 @@ private nonisolated final class ReportSQLiteConnection {
                         resolved_directory TEXT, last_successful_check REAL, version TEXT
                     ) STRICT;
                     INSERT INTO codex_source VALUES(1,'automatic','','',NULL,NULL,NULL);
-                    PRAGMA user_version=3;
+                    CREATE TABLE ai_services (protocol TEXT PRIMARY KEY NOT NULL, record TEXT NOT NULL) STRICT;
+                    CREATE TABLE ai_selection (id INTEGER PRIMARY KEY CHECK(id=1), protocol TEXT) STRICT;
+                    INSERT INTO ai_selection VALUES(1,NULL);
+                    PRAGMA user_version=4;
                     """)
+                for service in AIServiceType.allCases {
+                    try writeAIService(SavedAIService(configuration: AIServiceConfiguration(service: service)), insert: true)
+                }
             }
         }
         _ = try load()
@@ -192,7 +202,58 @@ private nonisolated final class ReportSQLiteConnection {
             guard checkedAt == nil || value.identity != nil, try !next(query) else { throw ReportStorageError.invalidData }
             return value
         }
-        return ReportStorageSnapshot(reports: reports, windowSize: size, generalSettings: settings, codexSource: source)
+        var aiServices = AIServiceSettings()
+        aiServices.configurations.removeAll()
+        try statement("SELECT protocol,record FROM ai_services") { query in
+            while try next(query) {
+                guard let type = try AIServiceType(rawValue: columnText(query, 0)),
+                      let data = try columnText(query, 1).data(using: .utf8),
+                      let record = try? JSONDecoder().decode(SavedAIService.self, from: data),
+                      record.configuration.service == type, record.configuration.inputError == nil,
+                      record.credentialVersion >= 0, record.credential == nil || record.credentialVersion > 0,
+                      record.validation.checkedAt?.timeIntervalSince1970.isFinite != false,
+                      aiServices.configurations[type] == nil else {
+                    throw ReportStorageError.invalidData
+                }
+                aiServices.configurations[type] = record
+            }
+        }
+        guard aiServices.configurations.count == AIServiceType.allCases.count else { throw ReportStorageError.invalidData }
+        try statement("SELECT id,protocol FROM ai_selection") { query in
+            guard try next(query), sqlite3_column_type(query, 0) == SQLITE_INTEGER, sqlite3_column_int64(query, 0) == 1 else {
+                throw ReportStorageError.invalidData
+            }
+            if sqlite3_column_type(query, 1) != SQLITE_NULL {
+                guard let type = try AIServiceType(rawValue: columnText(query, 1)) else { throw ReportStorageError.invalidData }
+                aiServices.current = type
+            }
+            guard try !next(query) else { throw ReportStorageError.invalidData }
+        }
+        return ReportStorageSnapshot(reports: reports, windowSize: size, generalSettings: settings, codexSource: source, aiServices: aiServices)
+    }
+
+    func saveAIService(_ service: SavedAIService) throws {
+        guard service.configuration.inputError == nil, service.credentialVersion >= 0 else { throw ReportStorageError.invalidData }
+        try transaction { try writeAIService(service, insert: false) }
+    }
+
+    func saveCurrentAIService(_ service: AIServiceType) throws {
+        try transaction {
+            try statement("UPDATE ai_selection SET protocol=? WHERE id=1") { query in
+                try bind(service.rawValue, to: query, at: 1)
+                guard sqlite3_step(query) == SQLITE_DONE, sqlite3_changes(database) == 1 else { throw ReportStorageError.writeFailed }
+            }
+        }
+    }
+
+    private func writeAIService(_ service: SavedAIService, insert: Bool) throws {
+        let record = String(decoding: try JSONEncoder().encode(service), as: UTF8.self)
+        let sql = insert ? "INSERT INTO ai_services(record,protocol) VALUES(?,?)" : "UPDATE ai_services SET record=? WHERE protocol=?"
+        try statement(sql) { query in
+            try bind(record, to: query, at: 1)
+            try bind(service.configuration.service.rawValue, to: query, at: 2)
+            guard sqlite3_step(query) == SQLITE_DONE, sqlite3_changes(database) == 1 else { throw ReportStorageError.writeFailed }
+        }
     }
 
     func save(_ report: SavedDailyReport) throws {

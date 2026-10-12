@@ -122,6 +122,7 @@ private final class WindowTestEnvironment {
     func makeFlow() -> DailyReportFlow {
         DailyReportFlow(
             storage: ControlledReportStorage(),
+            aiCredentials: AIServiceCredentialCipher(key: Data(repeating: 0x21, count: 32)),
             codexSourceAccess: ControlledCodexSource(),
             now: { Date(timeIntervalSince1970: 1_000) },
             timeZone: TimeZone(secondsFromGMT: 0)!,
@@ -130,8 +131,9 @@ private final class WindowTestEnvironment {
             recordWindowMode: { self.modes.append($0) },
             recordCodexCheck: { _ in },
             recordSessionScan: { _ in },
+            recordAIStorage: { _ in },
             redactCredentials: { $0 },
-            copyMarkdown: { _ in }
+            copyText: { _ in }
         )
     }
 }

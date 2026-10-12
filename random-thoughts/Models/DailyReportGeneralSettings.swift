@@ -75,6 +75,7 @@ nonisolated enum ReportSettingsPage: String, CaseIterable, Sendable {
 
 nonisolated enum ReportSettingsContinuation: Sendable {
     case stay
+    case aiService(AIServiceType)
     case page(ReportSettingsPage)
     case close(UUID)
     case quit

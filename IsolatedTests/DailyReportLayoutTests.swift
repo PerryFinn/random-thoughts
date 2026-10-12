@@ -6,6 +6,33 @@ import Testing
 
 @MainActor
 struct DailyReportLayoutTests {
+    @Test func allNativeAIEditorsAndCredentialConfirmationFitWithoutAWindow() async throws {
+        let environment = ReportFlowTestEnvironment()
+        let flow = try await prepareAISettings(environment)
+        let session = try #require(flow.openWindows[.settings])
+        for service in AIServiceType.allCases {
+            flow.send(.selectAIServiceType(service))
+            var edit = flow.aiServiceEdit
+            edit.configuration.endpoint = "http://localhost:8080/" + String(repeating: "very-long-route/", count: 80)
+            edit.configuration.model = String(repeating: "长模型👩🏽‍💻", count: 120)
+            flow.send(.editAIService(edit, session: session, revision: flow.aiServiceEditRevision))
+            let editor = NSHostingView(rootView: DailyReportAIServiceView(flow: flow).frame(width: 580, height: 520))
+            #expect(editor.fittingSize == NSSize(width: 580, height: 520))
+            #expect(editor.window == nil)
+            let settings = NSHostingView(rootView: SettingsView(flow: flow,
+                intelligenceContent: AnyView(Text("合成模型")), proximityContent: AnyView(Text("合成蓝牙"))))
+            #expect(settings.fittingSize == NSSize(width: 860, height: 620))
+            #expect(settings.window == nil)
+            flow.send(.selectAIServiceType(service == .messages ? .responses : .messages))
+            let sheet = NSHostingView(rootView: ReportConfirmationView(flow: flow, confirmation: try #require(flow.confirmation))
+                .frame(width: 760, height: 540))
+            #expect(sheet.fittingSize == NSSize(width: 760, height: 540))
+            #expect(sheet.window == nil)
+            flow.send(.cancelConfirmation)
+            flow.send(.revertAIService)
+        }
+    }
+
     @Test func sourceDrawerAndLongSessionListsFitTheMinimumReportWithoutAWindow() async throws {
         let environment = ReportFlowTestEnvironment()
         let sessions = (0..<40).map { syntheticCandidate("会话 \($0) " + String(repeating: "很长标题", count: 30),
@@ -96,6 +123,7 @@ struct DailyReportLayoutTests {
     @Test func reportFitsDefaultAndMinimumSizesWithoutAWindow() {
         let flow = DailyReportFlow(
             storage: ControlledReportStorage(),
+            aiCredentials: AIServiceCredentialCipher(key: Data(repeating: 0x21, count: 32)),
             codexSourceAccess: ControlledCodexSource(),
             now: { Date(timeIntervalSince1970: 1_000) },
             timeZone: TimeZone(secondsFromGMT: 0)!,
@@ -104,8 +132,9 @@ struct DailyReportLayoutTests {
             recordWindowMode: { _ in },
             recordCodexCheck: { _ in },
             recordSessionScan: { _ in },
+            recordAIStorage: { _ in },
             redactCredentials: { $0 },
-            copyMarkdown: { _ in }
+            copyText: { _ in }
         )
         let defaultView = NSHostingView(rootView: DailyReportView(flow: flow))
         #expect(defaultView.fittingSize == NSSize(width: 1100, height: 760))

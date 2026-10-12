@@ -330,17 +330,20 @@ struct DailyReportContentTests {
 final class ReportFlowTestEnvironment {
     let storage = ControlledReportStorage()
     let codex = ControlledCodexSource()
+    let credentials = ControlledCredentials()
     var now = Date(timeIntervalSince1970: 1_000)
     var effects: [AppWindowEffect] = []
     var copies: [String] = []
     var contextEffects: [ReportContextEffect] = []
     var codexEvents: [CodexCheckEvent] = []
     var scanEvents: [CodexScanEvent] = []
+    var aiStorageEvents: [AIServiceStorageEvent] = []
     var redact: @Sendable (String) throws -> String = { $0 }
 
     func makeFlow(timeZone: TimeZone = TimeZone(identifier: "Etc/UTC")!) -> DailyReportFlow {
         DailyReportFlow(
             storage: storage,
+            aiCredentials: credentials,
             codexSourceAccess: codex,
             now: { self.now },
             timeZone: timeZone,
@@ -349,14 +352,15 @@ final class ReportFlowTestEnvironment {
             recordWindowMode: { _ in },
             recordCodexCheck: { self.codexEvents.append($0) },
             recordSessionScan: { self.scanEvents.append($0) },
+            recordAIStorage: { self.aiStorageEvents.append($0) },
             redactCredentials: self.redact,
-            copyMarkdown: { self.copies.append($0) }
+            copyText: { self.copies.append($0) }
         )
     }
 }
 
 actor ControlledReportStorage: DailyReportStorage {
-    private var snapshot = ReportStorageSnapshot(reports: [], windowSize: nil, generalSettings: DailyReportGeneralSettings(), codexSource: CodexDataSourceSettings())
+    private var snapshot = ReportStorageSnapshot(reports: [], windowSize: nil, generalSettings: DailyReportGeneralSettings(), codexSource: CodexDataSourceSettings(), aiServices: AIServiceSettings())
     private var saveFailure = false
     private var loadFailure: ReportStorageError?
     private var holdsNextSave = false
@@ -398,6 +402,18 @@ actor ControlledReportStorage: DailyReportStorage {
         snapshot.codexSource.lastSuccessfulCheck = checkedAt
         snapshot.codexSource.version = version
     }
+
+    func saveAIService(_ service: SavedAIService) async throws {
+        await waitForSaveIfHeld()
+        if saveFailure { throw ReportStorageError.writeFailed }
+        snapshot.aiServices.configurations[service.configuration.service] = service
+    }
+    func saveCurrentAIService(_ service: AIServiceType) async throws {
+        await waitForSaveIfHeld()
+        if saveFailure { throw ReportStorageError.writeFailed }
+        snapshot.aiServices.current = service
+    }
+    func setAISettings(_ settings: AIServiceSettings) { snapshot.aiServices = settings }
 
     private func waitForSaveIfHeld() async {
         if holdsNextSave {

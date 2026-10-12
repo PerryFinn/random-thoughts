@@ -31,6 +31,10 @@ let package = Package(
             sources: [
                 "Models/AppWindowModels.swift", "Models/DailyReportModels.swift", "Stores/DailyReportFlow.swift",
                 "Models/DailyReportGeneralSettings.swift",
+                "Models/AIServiceConfiguration.swift", "Stores/AIServiceStore.swift",
+                "Services/AIServiceCredentialCipher.swift",
+                "Models/AIServiceValidation.swift",
+                "Views/DailyReportAIServiceView.swift", "Views/AIServiceDefaultsEditor.swift",
                 "Models/CodexDataSource.swift", "Stores/CodexDataSourceStore.swift",
                 "Models/CodexSessionScan.swift", "Stores/CodexSessionStore.swift",
                 "Services/CodexDataSourceReader.swift",

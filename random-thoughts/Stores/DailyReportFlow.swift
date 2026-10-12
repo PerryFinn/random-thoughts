@@ -40,6 +40,16 @@ final class DailyReportFlow {
         case rediscoverCodexSource
         case revertCodexSource
         case cancelCodexCheck
+        case selectAIServiceType(AIServiceType)
+        case editAIService(AIServiceEdit, session: UUID, revision: UInt64)
+        case saveAIService
+        case revertAIService
+        case makeAIServiceCurrent
+        case requestAIValidation
+        case showAICredential
+        case hideAICredential
+        case copyAICredential
+        case requestDeleteAICredential
         case showSources
         case hideSources
         case scanSessions
@@ -75,6 +85,20 @@ final class DailyReportFlow {
     private var pendingSizeWrites = 0
     private var isLoadingStorage = false
 
+    var aiServiceEdit: AIServiceEdit { aiServiceStore.edit }
+    var aiServiceEditRevision: UInt64 { aiServiceStore.editRevision }
+    var hasAIServiceEdits: Bool { aiServiceStore.hasEdits }
+    var currentAIService: AIServiceType? { aiServiceStore.settings.current }
+    var aiServiceStorageError: ReportStorageError? { aiServiceStore.storageError }
+    var aiServiceInputError: AIServiceInputError? { aiServiceStore.inputError }
+    var aiServiceUsesPlainHTTP: Bool { aiServiceEdit.configuration.usesPlainHTTP }
+    var aiCredentialError: AICredentialError? { aiServiceStore.credentialError }
+    var revealedAICredential: String? { aiServiceStore.revealedCredential }
+    var isReadingAICredential: Bool { aiServiceStore.isReadingCredential }
+    var savedAIService: SavedAIService { aiServiceStore.selected }
+    var aiCredentialStatus: AICredentialStatus { aiServiceStore.credentialStatus }
+    var aiServiceNotice: String? { aiServiceStore.notice }
+    var canMakeAIServiceCurrent: Bool { isStorageReady && !isSaving && aiServiceStore.canMakeCurrent }
     var reportTimeZone: TimeZone { selectedDay.timeZone }
     var hasGeneralSettingsEdits: Bool { generalSettingsEdit != generalSettings }
     var codexSource: CodexDataSourceSettings { codexSourceStore.saved }
@@ -118,7 +142,7 @@ final class DailyReportFlow {
     var draftDays: [ReportDay] {
         drafts.keys.sorted { ($0.calendarDate, $0.timeZoneIdentifier) < ($1.calendarDate, $1.timeZoneIdentifier) }
     }
-    var canTerminate: Bool { !isSaving && pendingSizeWrites == 0 && drafts.isEmpty && !hasGeneralSettingsEdits && !hasCodexSourceEdits && !isCheckingCodexSource && !isScanningSessions && !isConfirmingSessions }
+    var canTerminate: Bool { !isSaving && pendingSizeWrites == 0 && drafts.isEmpty && !hasGeneralSettingsEdits && !hasCodexSourceEdits && !hasAIServiceEdits && !isCheckingCodexSource && !isScanningSessions && !isConfirmingSessions }
     var historyDays: [ReportDay] {
         Set(savedReports.keys).union(drafts.keys).sorted {
             ($0.calendarDate, $0.timeZoneIdentifier) > ($1.calendarDate, $1.timeZoneIdentifier)
@@ -142,14 +166,16 @@ final class DailyReportFlow {
     @ObservationIgnored private var lastAppliedMode: AppWindowMode?
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let storage: any DailyReportStorage
-    @ObservationIgnored private let copyMarkdown: (String) -> Void
+    @ObservationIgnored private let copyText: (String) -> Void
     @ObservationIgnored private var storageTask: Task<Void, Never>?
     @ObservationIgnored private var quitTask: Task<Void, Never>?
     private let codexSourceStore: CodexDataSourceStore
     private let sessionStore: CodexSessionStore
+    private let aiServiceStore: AIServiceStore
 
     init(
         storage: any DailyReportStorage,
+        aiCredentials: any AICredentialAccess,
         codexSourceAccess: any CodexSourceAccess,
         now: @escaping () -> Date,
         timeZone: TimeZone,
@@ -158,17 +184,19 @@ final class DailyReportFlow {
         recordWindowMode: @escaping (AppWindowMode) -> Void,
         recordCodexCheck: @escaping (CodexCheckEvent) -> Void,
         recordSessionScan: @escaping (CodexScanEvent) -> Void,
+        recordAIStorage: @escaping (AIServiceStorageEvent) -> Void,
         redactCredentials: @escaping @Sendable (String) throws -> String,
-        copyMarkdown: @escaping (String) -> Void
+        copyText: @escaping (String) -> Void
     ) {
         self.storage = storage
+        aiServiceStore = AIServiceStore(storage: storage, credentials: aiCredentials, record: recordAIStorage)
         self.now = now
         macTimeZone = timeZone
         selectedDay = ReportDay(date: now(), timeZone: timeZone)
         self.performWindowEffect = performWindowEffect
         self.performContextEffect = performContextEffect
         self.recordWindowMode = recordWindowMode
-        self.copyMarkdown = copyMarkdown
+        self.copyText = copyText
         let sessionStore = CodexSessionStore(access: codexSourceAccess, redact: redactCredentials, record: recordSessionScan)
         self.sessionStore = sessionStore
         codexSourceStore = CodexDataSourceStore(
@@ -184,6 +212,8 @@ final class DailyReportFlow {
         await storageTask?.value
         await quitTask?.value
     }
+
+    func waitForAICredential() async { await aiServiceStore.waitForCredential() }
 
     func waitForCodexCheck() async { await codexSourceStore.waitForCheck() }
     func waitForSessionScan() async { await sessionStore.wait() }
@@ -209,6 +239,7 @@ final class DailyReportFlow {
             } else {
                 generalSettingsEdit = generalSettings
                 codexSourceStore.revert()
+                aiServiceStore.revert()
                 codexSourceStore.cancelCheck()
                 if confirmation?.windowKind == .settings { confirmation = nil }
             }
@@ -229,6 +260,9 @@ final class DailyReportFlow {
                 if let session = openWindows[.settings] { performWindowEffect(.present(.settings, session: session)) }
             } else if hasCodexSourceEdits {
                 setConfirmation(.codexSettings(.quit))
+                if let session = openWindows[.settings] { performWindowEffect(.present(.settings, session: session)) }
+            } else if hasAIServiceEdits {
+                setConfirmation(.aiSettings(.quit))
                 if let session = openWindows[.settings] { performWindowEffect(.present(.settings, session: session)) }
             } else if drafts.isEmpty {
                 quitAfterPendingSizeWrites()
@@ -275,7 +309,7 @@ final class DailyReportFlow {
             }
             if let kind = confirmation?.kind { setConfirmation(kind) }
         case .copyMarkdown:
-            copyMarkdown(body)
+            copyText(body)
             notice = "已复制 Markdown"
         case .save:
             guard isStorageReady, canEditSelectedReport, !isSaving, openWindows[.report] != nil else { return }
@@ -309,6 +343,16 @@ final class DailyReportFlow {
             case .codexSettings(let continuation):
                 guard openWindows[.settings] != nil, pending.codexConfiguration == codexSourceEdit else { return }
                 saveCodexSource(rediscover: false, continuation: continuation)
+            case .aiSettings(let continuation):
+                guard openWindows[.settings] != nil, pending.aiEdit == aiServiceEdit,
+                      let configuration = aiServiceStore.validateInput() else { return }
+                saveAIService(configuration, continuation: continuation)
+            case .deleteAICredential(let service, let version, let revision):
+                guard openWindows[.settings] != nil, settingsPage == .aiServices, !hasAIServiceEdits,
+                      aiServiceEdit.configuration.service == service, savedAIService.credentialVersion == version,
+                      aiServiceEditRevision == revision else { return }
+                isSaving = true
+                storageTask = aiServiceStore.deleteCredential(after: storageTask) { self.finishSaving() }
             case .unknownSources:
                 sessionStore.acceptUnknown(day: selectedDay)
             }
@@ -351,7 +395,15 @@ final class DailyReportFlow {
                 setConfirmation(.settings(.page(page)))
             } else if settingsPage == .dataSource, hasCodexSourceEdits {
                 setConfirmation(.codexSettings(.page(page)))
+            } else if settingsPage == .aiServices, hasAIServiceEdits {
+                setConfirmation(.aiSettings(.page(page)))
             } else {
+                if settingsPage == .aiServices {
+                    aiServiceStore.revert()
+                    if confirmation?.windowKind == .settings { confirmation = nil }
+                } else {
+                    aiServiceStore.hideCredential()
+                }
                 settingsPage = page
             }
         case .editGeneralSettings(let settings, let session):
@@ -397,7 +449,10 @@ final class DailyReportFlow {
                 setConfirmation(.settings(.close(session)))
             } else if hasCodexSourceEdits {
                 setConfirmation(.codexSettings(.close(session)))
+            } else if hasAIServiceEdits {
+                setConfirmation(.aiSettings(.close(session)))
             } else {
+                aiServiceStore.revert()
                 codexSourceStore.cancelCheck()
                 performWindowEffect(.closeSettings(session: session))
             }
@@ -413,6 +468,9 @@ final class DailyReportFlow {
             case .codexSettings(let target):
                 continuation = target
                 codexSourceStore.revert()
+            case .aiSettings(let target):
+                continuation = target
+                aiServiceStore.revert()
             default: return
             }
             confirmation = nil
@@ -433,6 +491,43 @@ final class DailyReportFlow {
             if case .codexSettings = confirmation?.kind { confirmation = nil }
         case .cancelCodexCheck:
             codexSourceStore.cancelCheck()
+        case .selectAIServiceType(let service):
+            guard isStorageReady, !isSaving, settingsPage == .aiServices, openWindows[.settings] != nil,
+                  service != aiServiceEdit.configuration.service else { return }
+            if hasAIServiceEdits { setConfirmation(.aiSettings(.aiService(service))) }
+            else { aiServiceStore.select(service); if confirmation?.windowKind == .settings { confirmation = nil } }
+        case .editAIService(let edit, let session, let revision):
+            guard isStorageReady, !isSaving, settingsPage == .aiServices, openWindows[.settings] == session,
+                  revision == aiServiceEditRevision, edit.configuration.service == aiServiceEdit.configuration.service else { return }
+            aiServiceStore.setEdit(edit)
+            if let kind = confirmation?.kind { setConfirmation(kind) }
+        case .saveAIService:
+            guard isStorageReady, !isSaving, openWindows[.settings] != nil, settingsPage == .aiServices,
+                  let configuration = aiServiceStore.validateInput() else { return }
+            saveAIService(configuration, continuation: .stay)
+        case .revertAIService:
+            guard !isSaving else { return }
+            aiServiceStore.revert()
+            if confirmation?.windowKind == .settings { confirmation = nil }
+        case .makeAIServiceCurrent:
+            guard canMakeAIServiceCurrent, settingsPage == .aiServices, openWindows[.settings] != nil else { return }
+            isSaving = true
+            storageTask = aiServiceStore.makeCurrent(after: storageTask) { self.finishSaving() }
+        case .requestAIValidation:
+            guard isStorageReady, !isSaving, settingsPage == .aiServices, openWindows[.settings] != nil else { return }
+            aiServiceStore.requestValidation()
+        case .showAICredential, .copyAICredential:
+            guard isStorageReady, !isSaving, settingsPage == .aiServices, openWindows[.settings] != nil else { return }
+            let copy: Bool
+            if case .copyAICredential = action { copy = true } else { copy = false }
+            aiServiceStore.readCredential(copy: copy, copyText: copyText)
+        case .hideAICredential:
+            aiServiceStore.hideCredential()
+        case .requestDeleteAICredential:
+            guard isStorageReady, !isSaving, settingsPage == .aiServices, openWindows[.settings] != nil,
+                  aiServiceStore.canRequestDeletion() else { return }
+            setConfirmation(.deleteAICredential(aiServiceEdit.configuration.service,
+                                              version: savedAIService.credentialVersion, revision: aiServiceEditRevision))
         case .showSources:
             guard openWindows[.report] != nil else { return }
             isSourceDrawerVisible = true
@@ -478,6 +573,7 @@ final class DailyReportFlow {
         guard pendingSizeWrites > 0 else {
             codexSourceStore.cancelCheck()
             sessionStore.clear()
+            aiServiceStore.revert()
             performWindowEffect(.quit)
             return
         }
@@ -522,6 +618,13 @@ final class DailyReportFlow {
                 kind: kind, previousMarkdown: nil, markdown: nil,
                 draftDays: quitting ? draftDays : [], codexConfiguration: codexSourceEdit
             )
+        case .aiSettings(let continuation):
+            let quitting: Bool
+            if case .quit = continuation { quitting = true } else { quitting = false }
+            confirmation = ReportConfirmation(kind: kind, previousMarkdown: nil, markdown: nil,
+                                              draftDays: quitting ? draftDays : [], aiEdit: aiServiceEdit)
+        case .deleteAICredential:
+            confirmation = hasAIServiceEdits ? nil : ReportConfirmation(kind: kind, previousMarkdown: nil, markdown: nil, draftDays: [])
         case .unknownSources:
             confirmation = ReportConfirmation(kind: kind, previousMarkdown: nil, markdown: nil, draftDays: [])
         }
@@ -550,6 +653,7 @@ final class DailyReportFlow {
                     generalSettings = snapshot.generalSettings
                     generalSettingsEdit = generalSettings
                     codexSourceStore.restore(snapshot.codexSource)
+                    await aiServiceStore.restore(snapshot.aiServices)
                     if let timeZone = effectiveReportTimeZone {
                         selectedDay = ReportDay(date: now(), timeZone: timeZone)
                     }
@@ -634,6 +738,14 @@ final class DailyReportFlow {
         }
     }
 
+    private func saveAIService(_ configuration: AIServiceConfiguration, continuation: ReportSettingsContinuation) {
+        isSaving = true
+        storageTask = aiServiceStore.save(configuration: configuration, after: storageTask) { success in
+            self.finishSaving()
+            if success { self.completeSettingsContinuation(continuation) }
+        }
+    }
+
     private func saveCodexSource(rediscover: Bool, continuation: ReportSettingsContinuation = .stay) {
         isSaving = true
         storageTask = codexSourceStore.save(rediscover: rediscover, after: storageTask) { success in
@@ -652,7 +764,8 @@ final class DailyReportFlow {
     private func completeSettingsContinuation(_ continuation: ReportSettingsContinuation) {
         switch continuation {
         case .stay: break
-        case .page(let page): settingsPage = page
+        case .aiService(let service): aiServiceStore.select(service)
+        case .page(let page): aiServiceStore.hideCredential(); settingsPage = page
         case .close(let session):
             if openWindows[.settings] == session {
                 codexSourceStore.cancelCheck()

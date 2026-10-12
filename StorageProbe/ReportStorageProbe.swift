@@ -100,6 +100,27 @@ struct ReportStorageProbe {
         case "source-old-schema":
             try execute("PRAGMA user_version=2", at: url)
             expected = .unsupportedVersion
+        case "ai-old-schema":
+            try execute("PRAGMA user_version=3", at: url)
+            expected = .unsupportedVersion
+        case "ai-missing-row":
+            try execute("DELETE FROM ai_services WHERE protocol='responses'", at: url)
+            expected = .invalidData
+        case "ai-unknown-protocol":
+            try execute("UPDATE ai_services SET protocol='unknown' WHERE protocol='responses'", at: url)
+            expected = .invalidData
+        case "ai-bad-record":
+            try execute("UPDATE ai_services SET record='{}' WHERE protocol='responses'", at: url)
+            expected = .invalidData
+        case "ai-bad-budget":
+            try execute("UPDATE ai_services SET record=json_set(record,'$.configuration.totalBudget',0) WHERE protocol='responses'", at: url)
+            expected = .invalidData
+        case "ai-bad-schema":
+            try execute("ALTER TABLE ai_services ADD COLUMN raw_key TEXT", at: url)
+            expected = .invalidData
+        case "ai-missing-selection":
+            try execute("DELETE FROM ai_selection", at: url)
+            expected = .invalidData
         case "source-bad-mode":
             try execute("UPDATE codex_source SET mode='unknown'", at: url)
             expected = .invalidData

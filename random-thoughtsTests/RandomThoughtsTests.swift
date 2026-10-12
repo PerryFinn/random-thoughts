@@ -249,6 +249,7 @@ struct RandomThoughtsTests {
         DailyReportFlow(
             storage: DailyReportDatabase(directory: FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString, isDirectory: true)),
+            aiCredentials: AIServiceCredentialCipher(key: Data(repeating: 0x21, count: 32)),
             codexSourceAccess: CodexDataSourceReader(homeDirectory: URL(fileURLWithPath: "/synthetic"), environment: [:], homebrewDirectories: [], scanLockDirectory: URL(fileURLWithPath: "/synthetic/locks")),
             now: { Date(timeIntervalSince1970: 0) },
             timeZone: TimeZone(secondsFromGMT: 0)!,
@@ -257,8 +258,9 @@ struct RandomThoughtsTests {
             recordWindowMode: { _ in },
             recordCodexCheck: { _ in },
             recordSessionScan: { _ in },
+            recordAIStorage: { _ in },
             redactCredentials: { $0 },
-            copyMarkdown: { _ in }
+            copyText: { _ in }
         )
     }
 

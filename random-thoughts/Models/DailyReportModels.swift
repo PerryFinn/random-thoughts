@@ -53,6 +53,7 @@ nonisolated struct ReportStorageSnapshot: Sendable {
     var windowSize: CGSize?
     var generalSettings: DailyReportGeneralSettings
     var codexSource: CodexDataSourceSettings
+    var aiServices: AIServiceSettings
 }
 
 protocol DailyReportStorage: Actor {
@@ -62,6 +63,8 @@ protocol DailyReportStorage: Actor {
     func saveGeneralSettings(_ settings: DailyReportGeneralSettings) async throws
     func saveCodexSource(_ settings: CodexDataSourceSettings) async throws
     func saveCodexDiagnostic(identity: CodexSourceIdentity, checkedAt: Date, version: CodexVersion?) async throws
+    func saveAIService(_ service: SavedAIService) async throws
+    func saveCurrentAIService(_ service: AIServiceType) async throws
 }
 
 nonisolated enum ReportStorageError: Error, Sendable {
@@ -92,6 +95,8 @@ nonisolated struct ReportConfirmation: Identifiable, Sendable {
         case quit
         case settings(ReportSettingsContinuation)
         case codexSettings(ReportSettingsContinuation)
+        case aiSettings(ReportSettingsContinuation)
+        case deleteAICredential(AIServiceType, version: Int64, revision: UInt64)
         case unknownSources
     }
 
@@ -102,12 +107,13 @@ nonisolated struct ReportConfirmation: Identifiable, Sendable {
     let draftDays: [ReportDay]
     var settings: DailyReportGeneralSettings? = nil
     var codexConfiguration: CodexDataSourceConfiguration? = nil
+    var aiEdit: AIServiceEdit? = nil
     var oldTimeZoneIdentifier: String? = nil
     var newTimeZoneIdentifier: String? = nil
 
     var windowKind: AppWindowKind {
         switch kind {
-        case .settings, .codexSettings: .settings
+        case .settings, .codexSettings, .aiSettings, .deleteAICredential: .settings
         default: .report
         }
     }

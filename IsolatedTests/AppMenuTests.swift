@@ -8,6 +8,7 @@ struct AppMenuTests {
     @Test func menuOffersSpecifiedShortcutsAndOnlyMinimizesTheReport() throws {
         let flow = DailyReportFlow(
             storage: ControlledReportStorage(),
+            aiCredentials: AIServiceCredentialCipher(key: Data(repeating: 0x21, count: 32)),
             codexSourceAccess: ControlledCodexSource(),
             now: { Date(timeIntervalSince1970: 1_000) },
             timeZone: TimeZone(secondsFromGMT: 0)!,
@@ -16,8 +17,9 @@ struct AppMenuTests {
             recordWindowMode: { _ in },
             recordCodexCheck: { _ in },
             recordSessionScan: { _ in },
+            recordAIStorage: { _ in },
             redactCredentials: { $0 },
-            copyMarkdown: { _ in }
+            copyText: { _ in }
         )
         var keyWindow: AppWindowKind? = .settings
         let commands = AppMenuCommands(flow: flow, keyWindowKind: { keyWindow })

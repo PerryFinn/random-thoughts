@@ -1,6 +1,6 @@
 # 构建与隔离测试
 
-本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#26](https://github.com/PerryFinn/random-thoughts/issues/26) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。
+本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#27](https://github.com/PerryFinn/random-thoughts/issues/27) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。
 
 ## 命令
 
@@ -28,7 +28,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 
 ## 复用实现与外部边界
 
-SwiftPM 的 `random_thoughts` 库直接编译清单列出的生产 Swift 文件，Xcode 应用继续编译这些文件，业务实现不复制。清单只纳入可隔离实现；生产 `@main`、应用 Delegate、AppKit 窗口操作、蓝牙及系统操作 Adapter 不在测试产物中。`DailyReportFlow` 的动作／状态接口供日报界面和主要业务测试共用；窗口系统动作注入受控接收器，原生内容通过 `NSHostingView` 测量且不创建窗口。#23 接入内存草稿与真实 SQLite，#26 接入候选扫描、选择与内存快照，生成由后续票接入。窗口、内容及扫描边界详见 [daily-report-windows.md](daily-report-windows.md)、[daily-report-content.md](daily-report-content.md) 与 [codex-session-scan.md](codex-session-scan.md)。
+SwiftPM 的 `random_thoughts` 库直接编译清单列出的生产 Swift 文件，Xcode 应用继续编译这些文件，业务实现不复制。清单只纳入可隔离实现；生产 `@main`、应用 Delegate、AppKit 窗口操作、蓝牙及系统操作 Adapter 不在测试产物中。`DailyReportFlow` 的动作／状态接口供日报界面和主要业务测试共用；窗口系统动作注入受控接收器，原生内容通过 `NSHostingView` 测量且不创建窗口。#23 接入内存草稿与真实 SQLite，#26 接入候选扫描、选择与内存快照，#27 接入三协议配置、真实 CryptoKit 和凭据事务；生成由后续票接入。窗口、内容、扫描及凭据边界详见 [daily-report-windows.md](daily-report-windows.md)、[daily-report-content.md](daily-report-content.md)、[codex-session-scan.md](codex-session-scan.md) 与 [ai-service-settings.md](ai-service-settings.md)。
 
 模型刷新作为既有行为的验证样本：Store 显式接收服务、UserDefaults、时钟和调度，服务显式接收 URLSession。只有生产组合传入真实会话及系统时间，测试组合使用合成传输和受控时间。构造 Store 不启动刷新；受控调度用明确屏障推进，失败保留旧状态且不改用生产依赖。
 
@@ -280,3 +280,33 @@ rtk proxy env DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuil
 code-review 固定起点为 `f36669b15306d04bf00eae477e8ae9c6619d0061`，提交前双轴独立评审本次暂存差异，不包含此前 12 个未推送提交。Standards 初审与复核均为 0 项硬性违反、0 项可行动气味。Spec 初审发现 1 项 P1 和 3 项 P2：默认供应商过滤漏会话、正式 user 来源误判、旧基础检查覆盖扫描结果、锁失败误报来源不可用；各项均先观察回归失败再修复，复核为 0 项未解决问题、0 项新增缺失／错误／范围扩张。修复后的相关 18 项与全套 101 项均通过，生产纯构建再次为 `BUILD SUCCEEDED`；固定上游 custom 范围限制已记录，没有扩展读取路径。
 
 未执行：生产应用启动、旧宿主／UI 测试执行、原生窗口／抽屉／sheet 的实际点击、键盘、滚动、聚焦与系统交互、截图、macOS 26.5 人工验收、真实 Codex／AI、OSLog 落盘、父规格的性能与语义验收。真实 Codex 读取闭环仍由 #35 承接，隔离 wire 不代表真实 Codex 已验收。
+## #27 三协议配置与凭据验证记录
+
+2026-10-12，本地 `c43f0d2` 上只实现 #27。#23 的本地 `27b065e` 已在基线中；先运行 `rtk proxy ./script/test-isolated.sh --filter 'DailyReportContentTests|DailyReportDatabaseTests'`，2 个套件、19 个测试通过。GitHub #23 仍开放并被 #22 阻塞，#27 仍被 #23 阻塞；本次不推送或关闭 Issue。
+
+文档、测试、实现按顺序进行：先观察新增流程／加密／布局测试因缺少对应生产接口失败；日志集成测试明确因缺少四条固定存储事件失败，再补最小实现。专用存储探针的七类 AI 坏库场景先失败，再接入真实数据库读取检查；没有用重建空库让测试通过。
+
+验证入口与行为：
+
+- `AIServiceSettingsTests`：三份隔离配置、不完整保存、完整路由与 HTTP 提示、原生默认值和预算范围、精确校验基线、C／并发保留资格、请求字段改变失效但保留当前身份；设置离开保护、编辑／窗口／确认过期、加密与提交失败、主动显示／复制的晚到解密结果、独立删除确认及回滚。新增切页往返投递旧确认／编辑，以及 Unicode 规范等价但请求字节不同的模型编辑／资格回归。
+- `AICredentialTests`：真实 AES.GCM 的随机 nonce、完整 Unicode／NUL 明文往返、独立实例共享测试密钥；封装／密钥版本、认证标签与短密文错误，不修改原封装。
+- `AIServicePersistenceTests`：真实 SQLite 读事务锁导致 COMMIT 失败，配置／密文／逻辑版本／校验证据完整回滚；删除失败保留原值、重试与重开成功；三份配置、当前身份及日报共存，坏密文仅阻断对应配置。旧 schema、缺行、未知协议、坏 JSON／预算／列结构／选择行在专用隔离子进程中拒绝并保持原库字节。
+- `AIServicePrivacyTests`：真实 CryptoKit／SQLite 经过 `DailyReportFlow.send`；凭据明文不进入数据库或偏好，主动复制精确返回已保存值；生产者完成后用独立 DDLog 的 `flushLog` 屏障捕获整个日志对象，只含固定操作／结果／版本，不含端点、模型、Key、密文、内置测试密钥或现场元数据。
+- `DailyReportLayoutTests.allNativeAIEditorsAndCredentialConfirmationFitWithoutAWindow`：三种原生编辑器、长路由／模型及编辑保护确认在无 NSWindow 的 NSHostingView 中布局。字段错误由流程固定枚举保留，界面映射到对应字段与 FocusState；实际键盘和系统焦点交互未执行。
+
+AI 传输由 #28 后续接入，本切片不创建网络客户端。启动／保存／切类型只走本地存储与加密，无 AI 请求入口；流程测试确认 Codex 检查和扫描调用均为 0。全量隔离测试同时验证沙盒拒绝真实网络、用户目录、蓝牙和未受控子进程。
+
+实际结果：
+
+- `rtk proxy ./script/test-isolated.sh --filter 'AIService|AICredential|DailyReportTelemetryTests|DailyReportLayoutTests'`：6 个套件、28 个测试通过。
+- `rtk proxy ./script/test-isolated.sh`：初版 24 个套件、119 个测试通过；评审修复后的最终全套为 24 个套件、121 个测试通过。
+- `rtk proxy ./script/build.sh`：`BUILD SUCCEEDED`，只构建生产应用。保留工具已有的 AppIntents 元数据缺少依赖提示；未新增 Swift 编译警告。
+- `rtk proxy env DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project random-thoughts.xcodeproj -scheme random-thoughts -configuration Debug -destination 'platform=macOS,arch=arm64' -derivedDataPath .build/DerivedData CODE_SIGNING_ALLOWED=NO build-for-testing`：`TEST BUILD SUCCEEDED`，旧宿主与 UI 调用方仅编译。仍有未修改的 `ProximityLockTests` 的 4 条 MainActor／Equatable 警告及 AppIntents 工具提示，没有执行这些测试。
+
+清理了 AI 服务页占位分支、旧流程初始化签名；全部生产、隔离及旧宿主调用方一起更新。共享存储探针调用移入测试 Support，删除原私有重复入口。未删除完整旧业务文件、用户数据库或用户数据，未保留兼容入口或迁移路径。
+
+code-review 固定起点为 `c43f0d2f86244a443c04b46a6774955a6807cb00`，双轴独立评审本次暂存差异，不包含此前 13 个未推送提交。Standards 初审有 1 项 P3：剪贴板出口同时承担凭据复制后，`copyMarkdown` 名称失准；已统一改为 `copyText`，所有调用方更新，业务动作仍独立。Spec 初审有 2 项 P2：切页往返后的旧删除确认／编辑仍可生效，以及 Swift Unicode 等价模型比较沿用旧资格。分别先观察红回归，再让离开 AI 页撤销确认并结束编辑代次、端点／模型改为 UTF-8 精确比较。最终 Standards 为 0 项硬性违反、0 项未解决或新增气味；Spec 为 0 项未解决问题、0 项新增缺失／错误／范围扩张。
+
+修复后的 `rtk proxy ./script/test-isolated.sh --filter 'AIService|AICredential|DailyReportContentTests|DailyReportLayoutTests'` 为 6 个套件、37 个测试通过；全套 121 项与生产纯构建再次通过。旧宿主/UI 调用方在 `copyText` 签名更新后再次仅编译，结果仍为 `TEST BUILD SUCCEEDED`。最终 `rtk proxy git diff --cached --check` 通过。交付前再次只读核对远端 main 仍为 `123948d`，#27/#23 仍开放，阻塞链仍是 #27→#23→#22。
+
+未执行应用启动、生产宿主测试、UI 自动化、真实 Codex／AI、实际键盘／剪贴板／窗口交互、最低 macOS 26.5 运行和父规格三协议真实语义验收；这些不能视为通过。本票只交付已授权的 #27 本地切片，不表示 #20 整体首次交付通过。

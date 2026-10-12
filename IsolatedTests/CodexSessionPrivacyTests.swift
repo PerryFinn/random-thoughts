@@ -25,10 +25,12 @@ struct CodexSessionPrivacyTests {
             let memory = MemoryWindowLogger()
             log.add(memory)
             let telemetry = DailyReportTelemetry(log: log)
-            let flow = DailyReportFlow(storage: database, codexSourceAccess: reader, now: { environment.clock.now }, timeZone: .gmt,
+            let flow = DailyReportFlow(storage: database, aiCredentials: AIServiceCredentialCipher(key: Data(repeating: 0x21, count: 32)),
+                codexSourceAccess: reader, now: { environment.clock.now }, timeZone: .gmt,
                 performWindowEffect: { _ in }, performContextEffect: { _ in }, recordWindowMode: { _ in },
                 recordCodexCheck: { telemetry.codexCheckFinished($0) }, recordSessionScan: { telemetry.sessionScanFinished($0) },
-                redactCredentials: CredentialRedaction.redact, copyMarkdown: { _ in })
+                recordAIStorage: { telemetry.storageFinished($0) },
+                redactCredentials: CredentialRedaction.redact, copyText: { _ in })
             flow.send(.open(.report))
             await flow.waitForStorage()
             #expect(flow.codexSourceStatus == .unchecked)
