@@ -29,6 +29,7 @@ struct DailyReportView: View {
                             Text("来源已变化；既有快照保留，新选择须重新确认。")
                                 .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 20)
                         }
+                        DailyReportGenerationStatusView(flow: flow)
                         content.frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                     if flow.isSourceDrawerVisible {
@@ -132,11 +133,12 @@ struct DailyReportView: View {
                     if let session { flow.send(.editBody($0, day: day, session: session, revision: revision)) }
                 }))
                 .font(.system(.body, design: .monospaced)).focused($editorIsFocused)
-                .disabled(flow.isSaving).id(day)
+                .disabled(flow.isSaving || flow.isGeneratingSelectedReport).id(day)
                 if flow.body.isEmpty, !flow.hasDraft, flow.savedReports[day] == nil, !editorIsFocused {
                     VStack(alignment: .leading, spacing: 8) {
                         Button("开始手写工作日报") { editorIsFocused = true }
-                            .disabled(flow.isSaving).pointerStyle(flow.isSaving ? .default : .link)
+                            .disabled(flow.isSaving || flow.isGeneratingSelectedReport)
+                            .pointerStyle(flow.isSaving || flow.isGeneratingSelectedReport ? .default : .link)
                         Button("打开来源会话") { flow.send(.showSources) }.pointerStyle(.link)
                     }
                     .padding(10)
@@ -151,16 +153,24 @@ struct DailyReportView: View {
             Button("复制 Markdown") { flow.send(.copyMarkdown) }
                 .disabled(!flow.isStorageReady).pointerStyle(flow.isStorageReady ? .link : .default)
             Button("放弃草稿") { flow.send(.requestDiscardDraft) }
-                .disabled(!flow.hasDraft || flow.isSaving)
-                .pointerStyle(flow.hasDraft && !flow.isSaving ? .link : .default)
+                .disabled(!flow.hasDraft || flow.isSaving || flow.isGeneratingSelectedReport)
+                .pointerStyle(flow.hasDraft && !flow.isSaving && !flow.isGeneratingSelectedReport ? .link : .default)
+            if flow.generationRetryAt != nil {
+                TimelineView(.periodic(from: .now, by: 1)) { _ in generateButton }
+            } else { generateButton }
             if let notice = flow.notice { Text(notice).font(.caption).foregroundStyle(.secondary) }
             Spacer()
             if flow.isSaving { ProgressView().controlSize(.small) }
             Button(flow.isSaving ? "正在保存…" : "保存") { flow.send(.save) }
-                .buttonStyle(.borderedProminent).disabled(!flow.isStorageReady || !flow.canEditSelectedReport || flow.isSaving)
-                .pointerStyle(flow.isStorageReady && flow.canEditSelectedReport && !flow.isSaving ? .link : .default)
+                .buttonStyle(.borderedProminent).disabled(!flow.isStorageReady || !flow.canEditSelectedReport || flow.isSaving || flow.isGeneratingSelectedReport)
+                .pointerStyle(flow.isStorageReady && flow.canEditSelectedReport && !flow.isSaving && !flow.isGeneratingSelectedReport ? .link : .default)
         }
         .padding(16)
+    }
+
+    private var generateButton: some View {
+        Button(flow.hasDraft ? "重新生成" : "生成日报") { flow.send(.generateReport) }
+            .disabled(!flow.canGenerateReport).pointerStyle(flow.canGenerateReport ? .link : .default)
     }
 
     private var dateNavigation: some View {

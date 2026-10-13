@@ -331,6 +331,7 @@ final class ReportFlowTestEnvironment {
     let storage = ControlledReportStorage()
     let codex = ControlledCodexSource()
     let credentials = ControlledCredentials()
+    let ai = ControlledAIService()
     var now = Date(timeIntervalSince1970: 1_000)
     var effects: [AppWindowEffect] = []
     var copies: [String] = []
@@ -339,12 +340,13 @@ final class ReportFlowTestEnvironment {
     var scanEvents: [CodexScanEvent] = []
     var aiStorageEvents: [AIServiceStorageEvent] = []
     var redact: @Sendable (String) throws -> String = { $0 }
+    var tokenizer: any ReportTokenCounting = OfflineReportTokenizer()
 
     func makeFlow(timeZone: TimeZone = TimeZone(identifier: "Etc/UTC")!) -> DailyReportFlow {
         DailyReportFlow(
             storage: storage,
             aiCredentials: credentials,
-            codexSourceAccess: codex,
+            aiAccess: self.ai, reportTokenizer: self.tokenizer, codexSourceAccess: codex,
             now: { self.now },
             timeZone: timeZone,
             performWindowEffect: { self.effects.append($0) },
@@ -353,7 +355,7 @@ final class ReportFlowTestEnvironment {
             recordCodexCheck: { self.codexEvents.append($0) },
             recordSessionScan: { self.scanEvents.append($0) },
             recordAIStorage: { self.aiStorageEvents.append($0) },
-            redactCredentials: self.redact,
+            recordAIValidation: { _ in }, recordGeneration: { _ in }, redactCredentials: self.redact,
             copyText: { self.copies.append($0) }
         )
     }
@@ -412,6 +414,15 @@ actor ControlledReportStorage: DailyReportStorage {
         await waitForSaveIfHeld()
         if saveFailure { throw ReportStorageError.writeFailed }
         snapshot.aiServices.current = service
+    }
+    func saveAIValidation(_ proof: AIServiceValidation, matching baseline: AIValidationBaseline) async throws -> Bool {
+        await waitForSaveIfHeld()
+        try Task.checkCancellation()
+        if saveFailure { throw ReportStorageError.writeFailed }
+        guard var saved = snapshot.aiServices.configurations[baseline.service], saved.requestBaseline == baseline else { return false }
+        saved.validation = proof
+        snapshot.aiServices.configurations[baseline.service] = saved
+        return true
     }
     func setAISettings(_ settings: AIServiceSettings) { snapshot.aiServices = settings }
 

@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
+"$ROOT_DIR/script/build-tokenizer.sh"
 
 if [[ ! -x /usr/bin/sandbox-exec ]]; then
   echo 'Isolation requires /usr/bin/sandbox-exec; refusing to run tests without it.' >&2
@@ -21,6 +22,7 @@ BUILD_OPTIONS=(
   --config-path "$ROOT_DIR/.build/swiftpm-config"
   --security-path "$ROOT_DIR/.build/swiftpm-security"
   --disable-keychain --disable-netrc
+  -Xlinker -L -Xlinker "$ROOT_DIR/.build/tokenizer/release" -Xlinker -lreport_tokenizer
   -Xlinker -rpath -Xlinker "$SDK_PLATFORM/Developer/Library/Frameworks"
   -Xlinker -rpath -Xlinker "$SDK_PLATFORM/Developer/usr/lib"
 )
@@ -44,6 +46,9 @@ export RANDOM_THOUGHTS_CODEX_PROBE="$CODEX_PROBE"
 export RANDOM_THOUGHTS_PROTECTED_HOME="$HOME"
 export CFFIXED_USER_HOME="$TEST_ROOT/home"
 export TMPDIR="$TEST_ROOT/tmp/"
+# Reserve one available loopback port for the in-process synthetic HTTP suite.
+# The sandbox admits this exact port and continues denying every other endpoint.
+export RANDOM_THOUGHTS_CHAT_PORT="$(/usr/bin/python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
 
 /usr/bin/sandbox-exec \
   -D "USER_HOME=$RANDOM_THOUGHTS_PROTECTED_HOME" \
@@ -52,5 +57,6 @@ export TMPDIR="$TEST_ROOT/tmp/"
   -D "TEST_RUNNER=$TEST_RUNNER" \
   -D "STORAGE_PROBE=$STORAGE_PROBE" \
   -D "CODEX_PROBE=$CODEX_PROBE" \
+  -D "CHAT_ENDPOINT=localhost:$RANDOM_THOUGHTS_CHAT_PORT" \
   -f "$ROOT_DIR/script/isolated-tests.sb" \
   "$TEST_RUNNER" --test-bundle-path "$TEST_BINARY" --testing-library swift-testing "$@"

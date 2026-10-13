@@ -29,6 +29,7 @@ struct ReportConfirmationView: View {
                 }
                 .background(.quaternary.opacity(0.25))
             } else {
+                if confirmation.isGenerating { Text("还有一份日报正在生成；实际关闭或退出才取消，原内容保留。").font(.callout) }
                 Text(explanation)
                     .foregroundStyle(.secondary)
                 if confirmation.settings != nil {
@@ -44,7 +45,7 @@ struct ReportConfirmationView: View {
             }
             HStack {
                 Spacer()
-                Button(confirmation.windowKind == .settings ? "取消" : "返回编辑") { flow.send(.cancelConfirmation) }
+                Button(cancelLabel) { flow.send(.cancelConfirmation) }
                     .keyboardShortcut(.defaultAction).disabled(flow.isSaving)
                     .pointerStyle(flow.isSaving ? .default : .link)
                 if canDiscardSettings {
@@ -62,6 +63,11 @@ struct ReportConfirmationView: View {
         .onExitCommand { flow.send(.cancelConfirmation) }
     }
 
+    private var cancelLabel: String {
+        if case .validationExit = confirmation.kind { return "继续测试" }
+        return confirmation.windowKind == .settings ? "取消" : "返回编辑"
+    }
+
     private var title: String {
         switch confirmation.kind {
         case .overwrite: "覆盖保存工作日报"
@@ -77,6 +83,8 @@ struct ReportConfirmationView: View {
         case .aiSettings: "离开前检查未保存 AI 配置"
         case .deleteAICredential: "删除已保存 AI 服务凭据"
         case .unknownSources: "纳入未知来源会话"
+        case .generate: "替换手写或已编辑草稿"
+        case .validationExit: "离开前检查正在进行的配置校验"
         }
     }
     private var confirmLabel: String {
@@ -94,6 +102,8 @@ struct ReportConfirmationView: View {
         case .aiSettings: "保存配置并继续"
         case .deleteAICredential: "确认删除凭据"
         case .unknownSources: "仅本次纳入"
+        case .generate: "确认替换并生成"
+        case .validationExit: "取消测试并离开"
         }
     }
 
@@ -111,6 +121,10 @@ struct ReportConfirmationView: View {
             "仅删除此协议的已保存凭据并使旧校验资格失效；保留端点、模型、默认值、预算及当前身份。此操作不会撤销服务方凭据，也不会清除剪贴板。"
         case .unknownSources:
             "这些会话的来源尚未识别，可能包含后台任务或其他噪声。确认仅纳入当前报告日的本次选择；刷新后须重新选择，不形成长期信任。"
+        case .generate:
+            "完整合格结果才替换当前草稿及来源；失败或取消保留原内容。配置、来源或设置变化须重新确认。"
+        case .validationExit:
+            "返回继续测试，或立即取消测试并离开；未完成校验保留原状态。退出还会放弃以下草稿并取消生成，需保留请先保存。"
         default:
             "需要保留的内容请返回编辑，逐份明确保存。放弃后这些草稿不会恢复。"
         }

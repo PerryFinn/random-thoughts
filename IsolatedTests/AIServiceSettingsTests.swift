@@ -312,7 +312,7 @@ struct AIServiceSettingsTests {
         #expect(flow.savedAIService.validation.streaming == .unknown)
         #expect(!flow.canMakeAIServiceCurrent)
         flow.send(.requestAIValidation)
-        #expect(flow.aiServiceNotice == "协议校验尚未接入，配置仍未获得生成资格。")
+        #expect(flow.aiServiceNotice == AIRequestError.unsupportedService.message)
         #expect(await environment.codex.checkCount == 0)
     }
 

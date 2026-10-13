@@ -15,6 +15,10 @@ actor DailyReportDatabase: DailyReportStorage {
     func saveWindowSize(_ size: CGSize) async throws { try open().saveWindowSize(size) }
     func saveGeneralSettings(_ settings: DailyReportGeneralSettings) async throws { try open().saveGeneralSettings(settings) }
     func saveAIService(_ service: SavedAIService) async throws { try open().saveAIService(service) }
+    func saveAIValidation(_ proof: AIServiceValidation, matching baseline: AIValidationBaseline) async throws -> Bool {
+        try Task.checkCancellation()
+        return try open().saveAIValidation(proof, matching: baseline)
+    }
     func saveCurrentAIService(_ service: AIServiceType) async throws { try open().saveCurrentAIService(service) }
     func saveCodexSource(_ settings: CodexDataSourceSettings) async throws { try open().saveCodexSource(settings) }
     func saveCodexDiagnostic(identity: CodexSourceIdentity, checkedAt: Date, version: CodexVersion?) async throws {
@@ -235,6 +239,23 @@ private nonisolated final class ReportSQLiteConnection {
     func saveAIService(_ service: SavedAIService) throws {
         guard service.configuration.inputError == nil, service.credentialVersion >= 0 else { throw ReportStorageError.invalidData }
         try transaction { try writeAIService(service, insert: false) }
+    }
+
+    func saveAIValidation(_ proof: AIServiceValidation, matching baseline: AIValidationBaseline) throws -> Bool {
+        var applied = false
+        try transaction {
+            try statement("SELECT record FROM ai_services WHERE protocol=?") { query in
+                try bind(baseline.service.rawValue, to: query, at: 1)
+                guard try next(query) else { throw ReportStorageError.invalidData }
+                var saved = try JSONDecoder().decode(SavedAIService.self, from: Data(columnText(query, 0).utf8))
+                guard saved.requestBaseline == baseline else { return }
+                try Task.checkCancellation()
+                saved.validation = proof
+                try writeAIService(saved, insert: false)
+                applied = true
+            }
+        }
+        return applied
     }
 
     func saveCurrentAIService(_ service: AIServiceType) throws {

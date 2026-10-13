@@ -9,7 +9,7 @@ struct AppMenuTests {
         let flow = DailyReportFlow(
             storage: ControlledReportStorage(),
             aiCredentials: AIServiceCredentialCipher(key: Data(repeating: 0x21, count: 32)),
-            codexSourceAccess: ControlledCodexSource(),
+            aiAccess: ControlledAIService(), reportTokenizer: OfflineReportTokenizer(), codexSourceAccess: ControlledCodexSource(),
             now: { Date(timeIntervalSince1970: 1_000) },
             timeZone: TimeZone(secondsFromGMT: 0)!,
             performWindowEffect: { _ in },
@@ -18,7 +18,7 @@ struct AppMenuTests {
             recordCodexCheck: { _ in },
             recordSessionScan: { _ in },
             recordAIStorage: { _ in },
-            redactCredentials: { $0 },
+            recordAIValidation: { _ in }, recordGeneration: { _ in }, redactCredentials: { $0 },
             copyText: { _ in }
         )
         var keyWindow: AppWindowKind? = .settings

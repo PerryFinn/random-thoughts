@@ -8,6 +8,10 @@
         (require-not (literal (param "STORAGE_PROBE")))
         (require-not (literal (param "CODEX_PROBE")))))
 (deny network*)
+(allow network-inbound (local ip (param "CHAT_ENDPOINT")))
+(allow network-outbound
+    (remote ip (param "CHAT_ENDPOINT"))
+    (local ip (param "CHAT_ENDPOINT")))
 (deny mach-lookup (global-name-regex #".*[Bb]luetooth.*"))
 (deny mach-lookup (global-name "com.apple.cfprefsd.agent"))
 

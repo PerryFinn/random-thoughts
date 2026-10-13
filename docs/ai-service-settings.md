@@ -10,7 +10,7 @@
 
 默认值分别存储：Chat Completions 温度 0–2、`reasoning_effort`；Responses 温度 0–2、`reasoning.effort`；两者 effort 为未设置或 none/minimal/low/medium/high/xhigh/max。Messages 温度 0–1，thinking 为端点默认／关闭／adaptive，仅 adaptive 可选 `output_config.effort`（未设置或 low/medium/high/xhigh/max）。未设置与显式 0／none 不合并，不增加跨协议公共生成参数。C／O 为正整数且 C>O，默认 65,536／16,384；并发默认 3、范围 1–8，必要预算字段不得为空。这些控制不属于生成偏好。
 
-保存、校验、设为当前各是独立动作；启动、切类型或保存不联网、不自动选择当前。本票预留显式校验入口并说明后续协议接入状态，不制造已校验结论，真实能力由 #28 接入。只有完整、凭据可读、已校验且基线匹配的配置才可设为当前；失去资格保留当前身份，不自动换服务。
+保存、校验、设为当前各是独立动作；启动、切类型或保存不联网、不自动选择当前。#27 预留校验入口；#28 接入 [Chat Completions 显式探测与直接生成](chat-completions-generation.md)，Responses／Messages 待各自协议票接入。只有完整、凭据可读、已校验且基线匹配的配置才可设为当前；失去资格保留当前身份，不自动换服务。
 
 校验基线明确绑定协议、完整端点、模型、原生默认值、逻辑凭据版本、鉴权／固定版本头、O、OpenAI 的 `store:false`、Responses 的 `truncation:disabled` 和探测契约版本。端点与模型按 UTF-8 原始字节比较，不把 Unicode 规范等价但请求字节不同的标识合并；这同时用于编辑保护和基线匹配。请求字段变化要求重新校验；C／并发不改变基线。恢复时基线不匹配只降低对应资格，不沿用旧能力证据。
 

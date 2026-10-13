@@ -250,7 +250,7 @@ struct RandomThoughtsTests {
             storage: DailyReportDatabase(directory: FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString, isDirectory: true)),
             aiCredentials: AIServiceCredentialCipher(key: Data(repeating: 0x21, count: 32)),
-            codexSourceAccess: CodexDataSourceReader(homeDirectory: URL(fileURLWithPath: "/synthetic"), environment: [:], homebrewDirectories: [], scanLockDirectory: URL(fileURLWithPath: "/synthetic/locks")),
+            aiAccess: DisabledAIService(), reportTokenizer: OfflineReportTokenizer(), codexSourceAccess: CodexDataSourceReader(homeDirectory: URL(fileURLWithPath: "/synthetic"), environment: [:], homebrewDirectories: [], scanLockDirectory: URL(fileURLWithPath: "/synthetic/locks")),
             now: { Date(timeIntervalSince1970: 0) },
             timeZone: TimeZone(secondsFromGMT: 0)!,
             performWindowEffect: { _ in },
@@ -259,7 +259,7 @@ struct RandomThoughtsTests {
             recordCodexCheck: { _ in },
             recordSessionScan: { _ in },
             recordAIStorage: { _ in },
-            redactCredentials: { $0 },
+            recordAIValidation: { _ in }, recordGeneration: { _ in }, redactCredentials: { $0 },
             copyText: { _ in }
         )
     }
@@ -342,4 +342,8 @@ private final class RejectingIntelligenceProtocol: URLProtocol, @unchecked Senda
         client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
     }
     override func stopLoading() {}
+}
+
+private nonisolated struct DisabledAIService: AIServiceAccess {
+    func execute(_ request: AIRequest) async throws -> String { throw AIRequestError.unsupportedService }
 }

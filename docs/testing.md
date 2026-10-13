@@ -1,6 +1,6 @@
 # 构建与隔离测试
 
-本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#27](https://github.com/PerryFinn/random-thoughts/issues/27) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。
+本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#28](https://github.com/PerryFinn/random-thoughts/issues/28) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)。
 
 ## 命令
 
@@ -28,7 +28,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 
 ## 复用实现与外部边界
 
-SwiftPM 的 `random_thoughts` 库直接编译清单列出的生产 Swift 文件，Xcode 应用继续编译这些文件，业务实现不复制。清单只纳入可隔离实现；生产 `@main`、应用 Delegate、AppKit 窗口操作、蓝牙及系统操作 Adapter 不在测试产物中。`DailyReportFlow` 的动作／状态接口供日报界面和主要业务测试共用；窗口系统动作注入受控接收器，原生内容通过 `NSHostingView` 测量且不创建窗口。#23 接入内存草稿与真实 SQLite，#26 接入候选扫描、选择与内存快照，#27 接入三协议配置、真实 CryptoKit 和凭据事务；生成由后续票接入。窗口、内容、扫描及凭据边界详见 [daily-report-windows.md](daily-report-windows.md)、[daily-report-content.md](daily-report-content.md)、[codex-session-scan.md](codex-session-scan.md) 与 [ai-service-settings.md](ai-service-settings.md)。
+SwiftPM 的 `random_thoughts` 库直接编译清单列出的生产 Swift 文件，Xcode 应用继续编译这些文件，业务实现不复制。清单只纳入可隔离实现；生产 `@main`、应用 Delegate、AppKit 窗口操作、蓝牙及系统操作 Adapter 不在测试产物中。`DailyReportFlow` 的动作／状态接口供日报界面和主要业务测试共用；窗口系统动作注入受控接收器，原生内容通过 `NSHostingView` 测量且不创建窗口。#23 接入内存草稿与真实 SQLite，#26 接入候选扫描、选择与内存快照，#27 接入三协议配置、真实 CryptoKit 和凭据事务，#28 接入 Chat Completions 显式探测、离线预算与直接生成。各边界详见 [daily-report-windows.md](daily-report-windows.md)、[daily-report-content.md](daily-report-content.md)、[codex-session-scan.md](codex-session-scan.md)、[ai-service-settings.md](ai-service-settings.md) 与 [chat-completions-generation.md](chat-completions-generation.md)。
 
 模型刷新作为既有行为的验证样本：Store 显式接收服务、UserDefaults、时钟和调度，服务显式接收 URLSession。只有生产组合传入真实会话及系统时间，测试组合使用合成传输和受控时间。构造 Store 不启动刷新；受控调度用明确屏障推进，失败保留旧状态且不改用生产依赖。
 
@@ -38,7 +38,7 @@ SwiftPM 的 `random_thoughts` 库直接编译清单列出的生产 Swift 文件�
 - 固定时钟与可控调度器可供后续日报模块注入。用完成/调度屏障等待，不通过任意 sleep、真实聚焦、用户凭据或 Codex 数据建立前提。
 - 数据库重开测试先等待 `DailyReportDatabase.close()` 归还连接与目录锁，不依赖异步任务中 ARC 临时引用的释放时机；生产组合仍持有应用生命周期内的唯一连接。
 - 合成 URLProtocol 仅安装到测试专用的 ephemeral URLSession，禁缓存/凭据/Cookie 存储。未知请求或注入故障直接失败，不回退 `URLSession.shared`。
-- 执行沙盒禁止网络、未列入白名单的进程执行、蓝牙服务访问以及真实用户主目录内容读取；主目录内仅放行仓库读取，系统框架正常读取。所有文件及偏好写入独立临时位置。脚本要求系统沙盒可用，任何准备或沙盒失败均非零退出，不提供无隔离重跑分支。
+- 执行沙盒仅开放脚本选定的一个回环 HTTP 端口，供测试进程内的串行假服务使用；禁止其余网络、未列入白名单的进程执行、蓝牙服务访问以及真实用户主目录内容读取。主目录内仅放行仓库读取，系统框架正常读取。所有文件及偏好写入独立临时位置。脚本要求系统沙盒可用，任何准备或沙盒失败均非零退出，不提供无隔离重跑分支。
 - U 验证既有刷新状态与固定时间；I 验证真实请求构造/解码、受控失败和沙盒禁止能力；L 通过 `NSHostingView.fittingSize` 测量生产卡片，不创建、展示或聚焦窗口。
 
 日报遥测测试直接使用固定版本 CocoaLumberjack，在独立 `DDLog` 中注册线程安全内存 logger；生产者完成提交后在日志队列外 `flushLog()`，检查完整 `DDLogMessage` 及最终文本。生产注册测试检查唯一 `DDOSLogger` 与无 formatter，固定 subsystem/category 由源码核对，不发系统日志事件。真实聚焦、Dock、快捷键与睡眠／唤醒交互由授权的 #35 验收承接。
@@ -310,3 +310,42 @@ code-review 固定起点为 `c43f0d2f86244a443c04b46a6774955a6807cb00`，双轴�
 修复后的 `rtk proxy ./script/test-isolated.sh --filter 'AIService|AICredential|DailyReportContentTests|DailyReportLayoutTests'` 为 6 个套件、37 个测试通过；全套 121 项与生产纯构建再次通过。旧宿主/UI 调用方在 `copyText` 签名更新后再次仅编译，结果仍为 `TEST BUILD SUCCEEDED`。最终 `rtk proxy git diff --cached --check` 通过。交付前再次只读核对远端 main 仍为 `123948d`，#27/#23 仍开放，阻塞链仍是 #27→#23→#22。
 
 未执行应用启动、生产宿主测试、UI 自动化、真实 Codex／AI、实际键盘／剪贴板／窗口交互、最低 macOS 26.5 运行和父规格三协议真实语义验收；这些不能视为通过。本票只交付已授权的 #27 本地切片，不表示 #20 整体首次交付通过。
+
+## #28 Chat Completions 直接生成验证记录
+
+2026-10-13 至 2026-10-14，仅在本地 `381b830` 上实现 #28；基线已包含 #24（`f88a832`）、#26（`c43f0d2`）、#27（`381b830`）。首次只读核对远端 main 为 `123948d`，#28 原生阻塞项仍为开放的 #24／#26／#27；不推送、不关闭票。
+
+先更新直接生成契约，再观察流程／预算／协议接口缺失的失败，完成最小实现。随后先红再绿覆盖辅助标记突破 20% 上限、schema 计数与实际序列化不一致、原生空／null 工具字段误拒、SSE 已完成但连接未关闭而误超时，以及明确配置失败等待本地写入才撤销资格的回归。
+
+验证入口与行为：
+
+- `ChatCompletionsValidationTests`：保存与三阶段合成探测独立、能力的支持／拒绝／未知、临时故障整份保留、明确配置错误失效、测试不设当前、字段锁定、离开继续或取消、旧回调与 SQLite 基线比较提交。
+- `ChatCompletionsHTTPTests`、`ChatCompletionsWireTests`、`ChatCompletionsStreamTests`：沙盒允许的唯一回环端口提供真实 URLSession 假服务；原生鉴权／请求字段／完整路由、schema 的真实编码、非流式完成、SSE UTF-8 分帧与 LF／CRLF／CR、空工具字段、完成后不等连接关闭、取消／迟到回调、连接 30 秒／非流式 300 秒／无有效进展 90 秒。受控时钟推进超过 300 秒的有效流仍可完成，心跳不延长无进展期限；拒绝重定向，无自动重试。403／404／429 与明确错误证据分别核对，可靠 Retry-After 仅供手动重试。
+- `OfflineTokenizerTests`：真实 Rust 静态库经正式 C 头桥接，15 项官方 `tiktoken 0.14.0` 夹具分别核对 cl100k／o200k／较大值，特殊 token 字面量按普通文本。流程中的计数错误注入验证停止且没有字节后备；未人为损坏生产内嵌词表。
+- `ReportGenerationTests`：全应用单份生成、只读目标与其他日期编辑、复制／预览可用的状态、取消立即解锁、旧结果失效、替换确认刷新、关闭面板不提前取消、失败原子保护、匹配配置错误立即撤销资格、运行中配置例外、完整当天超预算不发送；完整背景与同区已保存历史按日历窗口选择，缺日不补、不读草稿，实际序列化辅助标记也受 20% 限制。成功生成不重读快照，保存失败保留来源，成功清关联。
+- `ReportPayloadTests`、`ReportSemanticFixtureTests`：六章严格字段／完成结构、缺章／重复／额外字段／载荷外正文／坏标题拒绝，中文和英文固定标题／占位，凭据遮盖只作用于正文。8 个合成语义场景描述允许事实、完成证据、冲突与认可计划；只校验夹具和确定性契约，不将合成完成结果当作真实模型语义验收。
+- `ReportGenerationPrivacyTests`：合成探测和生成经统一流程接入真实 CryptoKit／SQLite／CocoaLumberjack；已保存工作与草稿的边界、真实 SQLite COMMIT 失败的原子保护、整份日志对象的类型化白名单、临时来源与外发编号、所有外发副本及入草稿遮盖。数据库与偏好只包含显式保存允许的内容，没有生成档案或请求缓存；整个流程只扫描一次，不访问真实 Codex。
+
+实际结果：
+
+- `rtk proxy ./script/test-isolated.sh --filter 'ReportGenerationTests|ChatCompletionsValidationTests'`：2 个套件、16 个测试通过。
+- `rtk proxy ./script/test-isolated.sh`：评审前全套 33 个套件、157 个测试通过；评审修复后的最终全套为 33 个套件、160 个测试通过。沙盒对其余网络、用户目录、蓝牙与非受控子进程的拒绝回归也通过。
+- `rtk proxy ./script/build.sh`：`BUILD SUCCEEDED`，仅构建 arm64 Debug 生产应用；无新增 Swift 编译警告，保留已有 AppIntents 元数据缺少框架依赖的工具提示。实际 Rust 固定为 1.90.0，tiktoken-rs 固定为 0.12.1，锁定依赖与词表在构建时编入静态库，运行时无需 Python／Rust 或词表下载。
+
+清理了 #27 的 Chat Completions 校验占位入口与旧流程初始化签名，所有生产、隔离及旧宿主调用方同步更新。C ABI 使用共用头文件，未保留私有 Swift 符号声明；原辅助预算与 schema 序列化不一致的路径被直接替换。删除逐行判断标题的正则，改用与预览相同的原生 Markdown 结构，并检查拼接后六章不会被未闭合代码块吞掉。没有删除或重置用户数据库／用户数据，没有迁移或兼容分支。
+
+code-review 固定起点为 `381b830ea8cbfd47c161608308c9fcf88cccbb27`，提交前双轴分别审查 `git diff --cached 381b830`，不包含此前 14 个未推送提交。Standards 初审为 0 项硬性违反、0 项可行动气味。Spec 初审发现 2 项 P2 和 1 项 P3：配置提交后的凭据检查等待造成取消空窗、合法水平线／代码字面量被误判为标题、生成失败未刷新关闭确认。先在隔离入口观察全部失败，再将凭据可读性检查移到配置事务前、采用原生 Markdown 标题判断、统一成功／失败／取消的确认刷新。修复后的 `rtk proxy ./script/test-isolated.sh --filter 'ReportGenerationTests|ReportPayloadTests|AIService|AICredential|ChatCompletionsValidation|ReportSemantic|ReportGenerationPrivacy'` 为 9 个套件、43 个测试通过。
+
+初审代理另外执行过一次未走仓库沙盒入口的只读合成 Markdown 解析探针，没有启动应用或访问真实 Codex／AI。正式失败复现、修复回归与最终验证均使用仓库隔离入口。
+
+Spec 复核提出空 ATX 标题可能没有字符 run 的边界。既有坏载荷参数补入裸 `#`／`##` 和引用内空标题，先在 `rtk proxy ./script/test-isolated.sh --filter ReportPayloadTests` 观察 3 项失败；仅在解析副本给潜在 ATX 标题加入可见标记，仍由原生 Markdown 上下文区分代码／转义，实际正文不改写。代码内裸标题保留、空标题拒绝及全部原夹具通过；相关 `rtk proxy ./script/test-isolated.sh --filter 'ReportPayloadTests|ReportGenerationTests|ReportGenerationPrivacy|ReportSemantic'` 为 4 个套件、18 个测试通过。
+
+最后的增量审查提出引用定义 `[r]: #` 接水平线可能误判。正式隔离测试先观察该合法载荷失败，再将解析副本标记限定为行首及引用／列表前缀，保留引用定义 URL。相同 18 项相关测试再次通过，裸列表内空标题拒绝与代码字面量保留均覆盖。
+
+Spec 随后提出 `[r]:\n#\n---` 可能也是合法引用。仓库隔离入口中的原生解析检查保留了 `[r]:` 段落，表明下一行裸 `#` 并未被消费为 URL，实际为空标题；引用容器、列表与多行 label 亦同。此假设未构成实现缺陷，移除未生效的试探保护及临时诊断输出，将这些输入纳入坏载荷参数；正常跨行 URL 和单行引用仍可保留。相关 4 个套件、18 项测试全部通过，生产源码与已经纯构建通过的版本一致。
+
+双轴最终复核均完成：Standards 为 0 项硬性违反、0 项可行动气味；Spec 为 0 项未解决缺失、实现错误或范围扩张。所有已确认问题均修复并回归，待证跨行引用假设由原生解析证据撤回。最后再次运行全套隔离入口，33 个套件、160 项测试通过。
+
+修复后的生产纯构建再次为 `BUILD SUCCEEDED`，只保留原有 AppIntents 工具提示。`rtk proxy bash -n script/build-tokenizer.sh script/test-isolated.sh script/build.sh` 与暂存差异空白检查均通过。2026-10-14 再次只读核对远端 main 仍为 `123948d`，#24／#26／#27／#28 均开放，#28→#27／#26／#24 的原生阻塞关系未变；前置票仍分别被 #23／#25／#23 阻塞。
+
+未执行：生产应用启动、旧宿主／UI 测试、实际窗口／键盘／焦点／剪贴板／睡眠唤醒交互、截图、macOS 26.5／Intel 运行、真实 Codex／AI、实际服务的语义与性能验收、系统日志落盘。直接预算外的完整分批由 #31 承接，真实语义与系统验收由授权后的 #35 承接；本票不表示 #20 整体首次交付完成。

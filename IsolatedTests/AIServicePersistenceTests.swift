@@ -133,10 +133,10 @@ struct AIServicePersistenceTests {
 @MainActor
 private func databaseAIFlow(_ database: DailyReportDatabase, environment: IsolatedTestEnvironment) -> DailyReportFlow {
     DailyReportFlow(storage: database, aiCredentials: AIServiceCredentialCipher(key: environment.credentialKey),
-                    codexSourceAccess: ControlledCodexSource(), now: { environment.clock.now }, timeZone: .gmt,
+                    aiAccess: ControlledAIService(), reportTokenizer: OfflineReportTokenizer(), codexSourceAccess: ControlledCodexSource(), now: { environment.clock.now }, timeZone: .gmt,
                     performWindowEffect: { _ in }, performContextEffect: { _ in }, recordWindowMode: { _ in },
                     recordCodexCheck: { _ in }, recordSessionScan: { _ in }, recordAIStorage: { _ in },
-                    redactCredentials: { $0 }, copyText: { _ in })
+                    recordAIValidation: { _ in }, recordGeneration: { _ in }, redactCredentials: { $0 }, copyText: { _ in })
 }
 
 @MainActor

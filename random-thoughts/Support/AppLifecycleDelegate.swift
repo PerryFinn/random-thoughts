@@ -26,7 +26,8 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             storage: DailyReportDatabase(directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("com.perryfinn.random-thoughts/DailyReports", isDirectory: true)),
             aiCredentials: AIServiceCredentialCipher.bundled(),
-            codexSourceAccess: CodexDataSourceReader(
+            aiAccess: ChatCompletionsAdapter(transport: .production()),
+            reportTokenizer: OfflineReportTokenizer(), codexSourceAccess: CodexDataSourceReader(
                 homeDirectory: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment,
                 homebrewDirectories: [URL(fileURLWithPath: "/opt/homebrew/bin"), URL(fileURLWithPath: "/usr/local/bin")],
                 scanLockDirectory: FileManager.default.temporaryDirectory.appendingPathComponent("com.perryfinn.random-thoughts/CodexScanLocks")
@@ -39,7 +40,8 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             recordCodexCheck: { telemetry.codexCheckFinished($0) },
             recordSessionScan: { telemetry.sessionScanFinished($0) },
             recordAIStorage: { telemetry.storageFinished($0) },
-            redactCredentials: CredentialRedaction.redact,
+            recordAIValidation: { telemetry.validationFinished($0) },
+            recordGeneration: { telemetry.generationChanged($0) }, redactCredentials: CredentialRedaction.redact,
             copyText: { text in
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(text, forType: .string)

@@ -58,6 +58,9 @@ final class DailyReportFlow {
         case selectSessionGroup(String?, Bool)
         case selectAllSessions(Bool)
         case confirmSessionSelection
+        case generateReport
+        case cancelGeneration
+        case cancelAIValidation
     }
 
     private(set) var openWindows: [AppWindowKind: UUID] = [:]
@@ -98,7 +101,20 @@ final class DailyReportFlow {
     var savedAIService: SavedAIService { aiServiceStore.selected }
     var aiCredentialStatus: AICredentialStatus { aiServiceStore.credentialStatus }
     var aiServiceNotice: String? { aiServiceStore.notice }
-    var canMakeAIServiceCurrent: Bool { isStorageReady && !isSaving && aiServiceStore.canMakeCurrent }
+    var canMakeAIServiceCurrent: Bool { isStorageReady && !isSaving && !isValidatingAIService && aiServiceStore.canMakeCurrent }
+    var isValidatingAIService: Bool { aiServiceStore.isValidating }
+    var aiValidationStage: AIProbeStage? { aiServiceStore.validationStage }
+    var activeGenerationDay: ReportDay? { generationStore.activeDay }
+    var isGeneratingSelectedReport: Bool { activeGenerationDay == selectedDay }
+    var generationStage: ReportGenerationStage { generationStore.stage }
+    var generationStartedAt: Date? { generationStore.startedAt }
+    var generationError: AIRequestError? { generationStore.lastDay == selectedDay ? generationStore.error : nil }
+    var generationRetryAt: Date? { generationStore.lastDay == selectedDay ? generationStore.retryAt : nil }
+    var generationRedactionFailed: Bool { generationStore.lastDay == selectedDay && generationStore.redactionFailed }
+    var generationSources: ReportGenerationSources? { drafts[selectedDay]?.sources }
+    var canGenerateReport: Bool { isStorageReady && !isSaving && activeGenerationDay == nil && canUseReportTimeZone
+        && confirmedSnapshot != nil && !sourceSelectionNeedsConfirmation && aiServiceStore.currentGeneratable != nil
+        && (generationRetryAt == nil || generationRetryAt! <= now()) }
     var reportTimeZone: TimeZone { selectedDay.timeZone }
     var hasGeneralSettingsEdits: Bool { generalSettingsEdit != generalSettings }
     var codexSource: CodexDataSourceSettings { codexSourceStore.saved }
@@ -142,7 +158,7 @@ final class DailyReportFlow {
     var draftDays: [ReportDay] {
         drafts.keys.sorted { ($0.calendarDate, $0.timeZoneIdentifier) < ($1.calendarDate, $1.timeZoneIdentifier) }
     }
-    var canTerminate: Bool { !isSaving && pendingSizeWrites == 0 && drafts.isEmpty && !hasGeneralSettingsEdits && !hasCodexSourceEdits && !hasAIServiceEdits && !isCheckingCodexSource && !isScanningSessions && !isConfirmingSessions }
+    var canTerminate: Bool { !isSaving && pendingSizeWrites == 0 && drafts.isEmpty && activeGenerationDay == nil && !isValidatingAIService && !hasGeneralSettingsEdits && !hasCodexSourceEdits && !hasAIServiceEdits && !isCheckingCodexSource && !isScanningSessions && !isConfirmingSessions }
     var historyDays: [ReportDay] {
         Set(savedReports.keys).union(drafts.keys).sorted {
             ($0.calendarDate, $0.timeZoneIdentifier) > ($1.calendarDate, $1.timeZoneIdentifier)
@@ -154,6 +170,7 @@ final class DailyReportFlow {
         let baseline: String
         let wasSaved: Bool
         var editedAt: Date
+        var sources: ReportGenerationSources? = nil
     }
 
     var windowMode: AppWindowMode {
@@ -172,10 +189,13 @@ final class DailyReportFlow {
     private let codexSourceStore: CodexDataSourceStore
     private let sessionStore: CodexSessionStore
     private let aiServiceStore: AIServiceStore
+    private let generationStore: ReportGenerationStore
 
     init(
         storage: any DailyReportStorage,
         aiCredentials: any AICredentialAccess,
+        aiAccess: any AIServiceAccess,
+        reportTokenizer: any ReportTokenCounting,
         codexSourceAccess: any CodexSourceAccess,
         now: @escaping () -> Date,
         timeZone: TimeZone,
@@ -185,11 +205,16 @@ final class DailyReportFlow {
         recordCodexCheck: @escaping (CodexCheckEvent) -> Void,
         recordSessionScan: @escaping (CodexScanEvent) -> Void,
         recordAIStorage: @escaping (AIServiceStorageEvent) -> Void,
+        recordAIValidation: @escaping (AIValidationEvent) -> Void,
+        recordGeneration: @escaping (ReportGenerationEvent) -> Void,
         redactCredentials: @escaping @Sendable (String) throws -> String,
         copyText: @escaping (String) -> Void
     ) {
         self.storage = storage
-        aiServiceStore = AIServiceStore(storage: storage, credentials: aiCredentials, record: recordAIStorage)
+        aiServiceStore = AIServiceStore(storage: storage, credentials: aiCredentials, access: aiAccess,
+                                        now: now, record: recordAIStorage, recordValidation: recordAIValidation)
+        generationStore = ReportGenerationStore(access: aiAccess, credentials: aiCredentials, tokenizer: reportTokenizer,
+            redact: redactCredentials, now: now, record: recordGeneration)
         self.now = now
         macTimeZone = timeZone
         selectedDay = ReportDay(date: now(), timeZone: timeZone)
@@ -214,6 +239,8 @@ final class DailyReportFlow {
     }
 
     func waitForAICredential() async { await aiServiceStore.waitForCredential() }
+    func waitForAIValidation() async { await aiServiceStore.waitForValidation() }
+    func waitForGeneration() async { await generationStore.wait() }
 
     func waitForCodexCheck() async { await codexSourceStore.waitForCheck() }
     func waitForSessionScan() async { await sessionStore.wait() }
@@ -232,11 +259,13 @@ final class DailyReportFlow {
             guard !isSaving, openWindows[kind] == session else { return }
             openWindows.removeValue(forKey: kind)
             if kind == .report {
+                generationStore.clear()
                 drafts.removeAll()
                 sessionStore.clear()
                 isSourceDrawerVisible = false
                 if confirmation?.windowKind == .report { confirmation = nil }
             } else {
+                aiServiceStore.cancelValidation()
                 generalSettingsEdit = generalSettings
                 codexSourceStore.revert()
                 aiServiceStore.revert()
@@ -255,7 +284,9 @@ final class DailyReportFlow {
             performWindowEffect(.closeKeyWindow)
         case .quit:
             guard !isSaving else { return }
-            if hasGeneralSettingsEdits {
+            if isValidatingAIService {
+                setConfirmation(.validationExit(.quit))
+            } else if hasGeneralSettingsEdits {
                 setConfirmation(.settings(.quit))
                 if let session = openWindows[.settings] { performWindowEffect(.present(.settings, session: session)) }
             } else if hasCodexSourceEdits {
@@ -264,7 +295,7 @@ final class DailyReportFlow {
             } else if hasAIServiceEdits {
                 setConfirmation(.aiSettings(.quit))
                 if let session = openWindows[.settings] { performWindowEffect(.present(.settings, session: session)) }
-            } else if drafts.isEmpty {
+            } else if drafts.isEmpty && activeGenerationDay == nil {
                 quitAfterPendingSizeWrites()
             } else {
                 setConfirmation(.quit)
@@ -294,7 +325,7 @@ final class DailyReportFlow {
             selectedDay = day
             if confirmation?.windowKind == .report { confirmation = nil }
         case .editBody(let markdown, let day, let session, let revision):
-            guard isStorageReady, canEditSelectedReport, !isSaving, openWindows[.report] == session, day == selectedDay,
+            guard isStorageReady, canEditSelectedReport, !isSaving, !isGeneratingSelectedReport, openWindows[.report] == session, day == selectedDay,
                   revision == reportEditRevision,
                   !body.utf8.elementsEqual(markdown.utf8) else { return }
             var draft = drafts[day] ?? Draft(
@@ -312,7 +343,7 @@ final class DailyReportFlow {
             copyText(body)
             notice = "已复制 Markdown"
         case .save:
-            guard isStorageReady, canEditSelectedReport, !isSaving, openWindows[.report] != nil else { return }
+            guard isStorageReady, canEditSelectedReport, !isSaving, !isGeneratingSelectedReport, openWindows[.report] != nil else { return }
             if let saved = savedReports[selectedDay] {
                 setConfirmation(.overwrite(saved.day))
             } else {
@@ -329,10 +360,12 @@ final class DailyReportFlow {
                 drafts.removeValue(forKey: day)
             case .close(let session):
                 guard openWindows[.report] == session else { return }
+                generationStore.clear()
                 drafts.removeAll()
                 sessionStore.clear()
                 performWindowEffect(.closeReport(session: session))
             case .quit:
+                generationStore.cancel()
                 drafts.removeAll()
                 quitAfterPendingSizeWrites()
             case .settings(let continuation):
@@ -352,9 +385,19 @@ final class DailyReportFlow {
                       aiServiceEdit.configuration.service == service, savedAIService.credentialVersion == version,
                       aiServiceEditRevision == revision else { return }
                 isSaving = true
-                storageTask = aiServiceStore.deleteCredential(after: storageTask) { self.finishSaving() }
+                storageTask = aiServiceStore.deleteCredential(after: storageTask) {
+                    self.applyAIConfigurationChange()
+                    self.finishSaving()
+                }
             case .unknownSources:
                 sessionStore.acceptUnknown(day: selectedDay)
+            case .generate(let day):
+                guard day == selectedDay, let input = generationContext() else { return }
+                guard pending.generationContext == input else { setConfirmation(.generate(day)); return }
+                startGeneration(input)
+            case .validationExit(let continuation):
+                aiServiceStore.cancelValidation()
+                completeSettingsContinuation(continuation)
             }
         case .cancelConfirmation:
             guard confirmation != nil else { return }
@@ -363,11 +406,11 @@ final class DailyReportFlow {
             quitTask?.cancel()
             quitTask = nil
         case .requestDiscardDraft:
-            guard !isSaving, hasDraft else { return }
+            guard !isSaving, !isGeneratingSelectedReport, hasDraft else { return }
             setConfirmation(.discard(selectedDay))
         case .requestCloseReport(let session):
             guard !isSaving, openWindows[.report] == session else { return }
-            if drafts.isEmpty {
+            if drafts.isEmpty && activeGenerationDay == nil {
                 sessionStore.clear()
                 performWindowEffect(.closeReport(session: session))
             } else {
@@ -391,7 +434,9 @@ final class DailyReportFlow {
             }
         case .requestSettingsPage(let page):
             guard !isSaving, openWindows[.settings] != nil, page != settingsPage else { return }
-            if settingsPage == .general, hasGeneralSettingsEdits {
+            if isValidatingAIService {
+                setConfirmation(.validationExit(.page(page)))
+            } else if settingsPage == .general, hasGeneralSettingsEdits {
                 setConfirmation(.settings(.page(page)))
             } else if settingsPage == .dataSource, hasCodexSourceEdits {
                 setConfirmation(.codexSettings(.page(page)))
@@ -445,7 +490,9 @@ final class DailyReportFlow {
             if let pendingKind { setConfirmation(pendingKind) }
         case .requestCloseSettings(let session):
             guard !isSaving, openWindows[.settings] == session else { return }
-            if hasGeneralSettingsEdits {
+            if isValidatingAIService {
+                setConfirmation(.validationExit(.close(session)))
+            } else if hasGeneralSettingsEdits {
                 setConfirmation(.settings(.close(session)))
             } else if hasCodexSourceEdits {
                 setConfirmation(.codexSettings(.close(session)))
@@ -494,28 +541,39 @@ final class DailyReportFlow {
         case .selectAIServiceType(let service):
             guard isStorageReady, !isSaving, settingsPage == .aiServices, openWindows[.settings] != nil,
                   service != aiServiceEdit.configuration.service else { return }
-            if hasAIServiceEdits { setConfirmation(.aiSettings(.aiService(service))) }
+            if isValidatingAIService { setConfirmation(.validationExit(.aiService(service))) }
+            else if hasAIServiceEdits { setConfirmation(.aiSettings(.aiService(service))) }
             else { aiServiceStore.select(service); if confirmation?.windowKind == .settings { confirmation = nil } }
         case .editAIService(let edit, let session, let revision):
-            guard isStorageReady, !isSaving, settingsPage == .aiServices, openWindows[.settings] == session,
+            guard isStorageReady, !isSaving, !isValidatingAIService, settingsPage == .aiServices, openWindows[.settings] == session,
                   revision == aiServiceEditRevision, edit.configuration.service == aiServiceEdit.configuration.service else { return }
             aiServiceStore.setEdit(edit)
             if let kind = confirmation?.kind { setConfirmation(kind) }
         case .saveAIService:
-            guard isStorageReady, !isSaving, openWindows[.settings] != nil, settingsPage == .aiServices,
+            guard isStorageReady, !isSaving, !isValidatingAIService, openWindows[.settings] != nil, settingsPage == .aiServices,
                   let configuration = aiServiceStore.validateInput() else { return }
             saveAIService(configuration, continuation: .stay)
         case .revertAIService:
-            guard !isSaving else { return }
+            guard !isSaving, !isValidatingAIService else { return }
             aiServiceStore.revert()
             if confirmation?.windowKind == .settings { confirmation = nil }
         case .makeAIServiceCurrent:
             guard canMakeAIServiceCurrent, settingsPage == .aiServices, openWindows[.settings] != nil else { return }
             isSaving = true
-            storageTask = aiServiceStore.makeCurrent(after: storageTask) { self.finishSaving() }
+            storageTask = aiServiceStore.makeCurrent(after: storageTask) {
+                self.applyAIConfigurationChange()
+                self.finishSaving()
+            }
         case .requestAIValidation:
             guard isStorageReady, !isSaving, settingsPage == .aiServices, openWindows[.settings] != nil else { return }
             aiServiceStore.requestValidation()
+        case .cancelAIValidation:
+            aiServiceStore.cancelValidation()
+        case .generateReport:
+            requestGeneration()
+        case .cancelGeneration:
+            generationStore.cancel()
+            if let kind = confirmation?.kind { setConfirmation(kind) }
         case .showAICredential, .copyAICredential:
             guard isStorageReady, !isSaving, settingsPage == .aiServices, openWindows[.settings] != nil else { return }
             let copy: Bool
@@ -524,7 +582,7 @@ final class DailyReportFlow {
         case .hideAICredential:
             aiServiceStore.hideCredential()
         case .requestDeleteAICredential:
-            guard isStorageReady, !isSaving, settingsPage == .aiServices, openWindows[.settings] != nil,
+            guard isStorageReady, !isSaving, !isValidatingAIService, settingsPage == .aiServices, openWindows[.settings] != nil,
                   aiServiceStore.canRequestDeletion() else { return }
             setConfirmation(.deleteAICredential(aiServiceEdit.configuration.service,
                                               version: savedAIService.credentialVersion, revision: aiServiceEditRevision))
@@ -546,6 +604,44 @@ final class DailyReportFlow {
         case .confirmSessionSelection:
             guard openWindows[.report] != nil, canConfirmSessionSelection else { return }
             sessionStore.confirm(day: selectedDay) { self.isSourceDrawerVisible = false }
+        }
+    }
+
+    private func generationContext() -> ReportGenerationContext? {
+        guard canUseReportTimeZone, let service = aiServiceStore.currentGeneratable,
+              let snapshot = confirmedSnapshot, !snapshot.sessions.isEmpty, !sourceSelectionNeedsConfirmation else { return nil }
+        let days = Set((1...max(1, generalSettings.historyLookbackDays)).prefix(generalSettings.historyLookbackDays).compactMap { offset in
+            selectedDay.calendar.date(byAdding: .day, value: -offset, to: selectedDay.start).map { ReportDay(date: $0, timeZone: selectedDay.timeZone) }
+        })
+        let history = savedReports.values.filter { days.contains($0.day) }.sorted { $0.day.calendarDate > $1.day.calendarDate }
+        return ReportGenerationContext(service: service, snapshot: snapshot, settings: generalSettings, history: history)
+    }
+
+    private func requestGeneration() {
+        guard !isSaving, activeGenerationDay == nil, openWindows[.report] != nil else { return }
+        if let retryAt = generationRetryAt, retryAt > now() { return }
+        guard let input = generationContext() else {
+            generationStore.fail(aiServiceStore.currentGeneratable == nil ? .missingConfiguration : .missingInput, day: selectedDay)
+            return
+        }
+        if let draft = drafts[selectedDay], draft.sources == nil || !draft.markdown.utf8.elementsEqual(draft.baseline.utf8) {
+            setConfirmation(.generate(selectedDay))
+        } else { startGeneration(input) }
+    }
+
+    private func startGeneration(_ input: ReportGenerationContext) {
+        let session = openWindows[.report]
+        let day = input.snapshot.day
+        generationStore.start(input) { result, failure in
+            guard self.openWindows[.report] == session else { return }
+            if let result {
+                self.drafts[day] = Draft(markdown: result.markdown, baseline: result.markdown, wasSaved: false,
+                                        editedAt: self.now(), sources: result.sources)
+                self.reportEditRevision += 1
+            } else if let failure, failure.invalidatesConfiguration {
+                self.storageTask = self.aiServiceStore.invalidate(input.service.requestBaseline, after: self.storageTask)
+            }
+            if let kind = self.confirmation?.kind { self.setConfirmation(kind) }
         }
     }
 
@@ -571,6 +667,8 @@ final class DailyReportFlow {
 
     private func quitAfterPendingSizeWrites() {
         guard pendingSizeWrites > 0 else {
+            generationStore.cancel()
+            aiServiceStore.cancelValidation()
             codexSourceStore.cancelCheck()
             sessionStore.clear()
             aiServiceStore.revert()
@@ -600,7 +698,7 @@ final class DailyReportFlow {
             )
         case .close, .quit:
             confirmation = ReportConfirmation(
-                kind: kind, previousMarkdown: nil, markdown: nil, draftDays: draftDays
+                kind: kind, previousMarkdown: nil, markdown: nil, draftDays: draftDays, isGenerating: activeGenerationDay != nil
             )
         case .settings(let continuation):
             let quitting: Bool
@@ -609,24 +707,31 @@ final class DailyReportFlow {
                 kind: kind, previousMarkdown: nil, markdown: nil,
                 draftDays: quitting ? draftDays : settingsDraftImpact,
                 settings: generalSettingsEdit, oldTimeZoneIdentifier: effectiveTimeZoneIdentifier,
-                newTimeZoneIdentifier: editedTimeZoneIdentifier
+                newTimeZoneIdentifier: editedTimeZoneIdentifier, isGenerating: quitting && activeGenerationDay != nil
             )
         case .codexSettings(let continuation):
             let quitting: Bool
             if case .quit = continuation { quitting = true } else { quitting = false }
             confirmation = ReportConfirmation(
                 kind: kind, previousMarkdown: nil, markdown: nil,
-                draftDays: quitting ? draftDays : [], codexConfiguration: codexSourceEdit
+                draftDays: quitting ? draftDays : [], codexConfiguration: codexSourceEdit, isGenerating: quitting && activeGenerationDay != nil
             )
         case .aiSettings(let continuation):
             let quitting: Bool
             if case .quit = continuation { quitting = true } else { quitting = false }
             confirmation = ReportConfirmation(kind: kind, previousMarkdown: nil, markdown: nil,
-                                              draftDays: quitting ? draftDays : [], aiEdit: aiServiceEdit)
+                                              draftDays: quitting ? draftDays : [], aiEdit: aiServiceEdit, isGenerating: quitting && activeGenerationDay != nil)
         case .deleteAICredential:
             confirmation = hasAIServiceEdits ? nil : ReportConfirmation(kind: kind, previousMarkdown: nil, markdown: nil, draftDays: [])
         case .unknownSources:
             confirmation = ReportConfirmation(kind: kind, previousMarkdown: nil, markdown: nil, draftDays: [])
+        case .generate(let day):
+            confirmation = ReportConfirmation(kind: kind, previousMarkdown: nil, markdown: body, draftDays: [day], generationContext: generationContext())
+        case .validationExit(let continuation):
+            let quitting: Bool
+            if case .quit = continuation { quitting = true } else { quitting = false }
+            confirmation = ReportConfirmation(kind: kind, previousMarkdown: nil, markdown: nil,
+                draftDays: quitting ? draftDays : [], isGenerating: quitting && activeGenerationDay != nil)
         }
     }
 
@@ -742,8 +847,16 @@ final class DailyReportFlow {
         isSaving = true
         storageTask = aiServiceStore.save(configuration: configuration, after: storageTask) { success in
             self.finishSaving()
-            if success { self.completeSettingsContinuation(continuation) }
+            if success {
+                self.applyAIConfigurationChange()
+                self.completeSettingsContinuation(continuation)
+            }
         }
+    }
+
+    private func applyAIConfigurationChange() {
+        generationStore.configurationChanged(aiServiceStore.settings)
+        if let kind = confirmation?.kind { setConfirmation(kind) }
     }
 
     private func saveCodexSource(rediscover: Bool, continuation: ReportSettingsContinuation = .stay) {
@@ -778,6 +891,7 @@ final class DailyReportFlow {
     }
 
     private func switchReportTimeZone(from previous: String?, discarding days: [ReportDay]) {
+        if generationStore.activeDay?.timeZoneIdentifier == previous { generationStore.cancel() }
         reportEditRevision += 1
         if let previous { performContextEffect(.cancelTimeZoneTasks(previous, revision: reportEditRevision)) }
         if let previous { sessionStore.clear(timeZone: previous) }

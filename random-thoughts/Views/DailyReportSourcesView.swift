@@ -20,9 +20,27 @@ struct DailyReportSourcesView: View {
             }
             .pickerStyle(.segmented).pointerStyle(.link)
             if showsGenerationSources {
-                Text("当前草稿没有生成来源。手写内容及从已保存日报建立的草稿不带来源清单。")
-                    .font(.callout).foregroundStyle(.secondary)
-                Spacer()
+                if let sources = flow.generationSources {
+                    Text("整份草稿生成时的实际输入，不证明具体章节、条目或后续编辑。当前选择变化不改此清单。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(sources.groups) { group in
+                                Text(group.title).font(.headline)
+                                ForEach(Array(group.titles.enumerated()), id: \.offset) { _, title in Text(title).textSelection(.enabled) }
+                            }
+                            if !sources.historyDays.isEmpty {
+                                Divider()
+                                Text("实际历史参考 · 仅作背景").font(.headline)
+                                ForEach(sources.historyDays) { day in Text("\(day.calendarDate) · \(day.timeZoneIdentifier)") }
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                } else {
+                    Text("当前草稿没有生成来源。手写内容及从已保存日报建立的草稿不带来源清单。")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Spacer()
+                }
             } else {
                 selection
             }

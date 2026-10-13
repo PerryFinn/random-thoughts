@@ -13,9 +13,10 @@ let package = Package(
         .package(url: "https://github.com/CocoaLumberjack/CocoaLumberjack.git", exact: "3.10.0")
     ],
     targets: [
+        .systemLibrary(name: "ReportTokenizerC", path: "Tokenizer/include"),
         .target(
             name: "random_thoughts",
-            dependencies: [.product(name: "CocoaLumberjack", package: "CocoaLumberjack")],
+            dependencies: ["ReportTokenizerC", .product(name: "CocoaLumberjack", package: "CocoaLumberjack")],
             path: "random-thoughts",
             exclude: [
                 "App", "Assets.xcassets", "Models/ProximityModels.swift",
@@ -34,6 +35,10 @@ let package = Package(
                 "Models/AIServiceConfiguration.swift", "Stores/AIServiceStore.swift",
                 "Services/AIServiceCredentialCipher.swift",
                 "Models/AIServiceValidation.swift",
+                "Services/ChatCompletionsStream.swift", "Models/AIRequest.swift", "Services/AIHTTPTransport.swift", "Services/ChatCompletionsAdapter.swift",
+                "Models/ReportPayload.swift",
+                "Services/OfflineReportTokenizer.swift",
+                "Views/DailyReportGenerationStatusView.swift", "Models/ReportGeneration.swift", "Services/ReportInputPlanner.swift", "Stores/ReportGenerationStore.swift",
                 "Views/DailyReportAIServiceView.swift", "Views/AIServiceDefaultsEditor.swift",
                 "Models/CodexDataSource.swift", "Stores/CodexDataSourceStore.swift",
                 "Models/CodexSessionScan.swift", "Stores/CodexSessionStore.swift",
@@ -62,8 +67,9 @@ let package = Package(
         .executableTarget(name: "SyntheticCodexServer", path: "CodexProbe", exclude: ["README.md"]),
         .testTarget(
             name: "IsolatedTests",
-            dependencies: ["random_thoughts", .product(name: "CocoaLumberjack", package: "CocoaLumberjack")],
-            path: "IsolatedTests"
+            dependencies: ["random_thoughts", "ReportTokenizerC", .product(name: "CocoaLumberjack", package: "CocoaLumberjack")],
+            path: "IsolatedTests",
+            resources: [.copy("Fixtures")]
         )
     ]
 )

@@ -39,11 +39,33 @@ struct DailyReportTelemetry {
              event: .storage)
     }
 
+    func validationFinished(_ event: AIValidationEvent) {
+        emit(format: "ai_validation_finished service=%@ stage=%@ result=%@ capability=%@",
+             text: "ai_validation_finished service=\(event.service.rawValue) stage=\(event.stage.rawValue) result=\(event.result.rawValue) capability=\(event.capability.rawValue)",
+             event: .validation)
+    }
+
+    func generationChanged(_ value: ReportGenerationEvent) {
+        let event: Event
+        switch value.kind {
+        case .started: event = .generationStarted
+        case .stageChanged: event = .generationStage
+        case .finished: event = .generationFinished
+        }
+        emit(format: "report_generation event=%@ path=direct stage=%@ result=%@ input_tokens=%d reason=%@ tokenizer=0.12.1",
+             text: "\(value.kind.rawValue) path=direct stage=\(value.stage.rawValue) result=\(value.result.rawValue) input_tokens=\(value.inputTokens) reason=\(value.error?.rawValue ?? "none") tokenizer=0.12.1",
+             event: event)
+    }
+
     private enum Event: String {
         case windowMode = "window_mode_changed"
         case codexCheck = "codex_check_finished"
         case sessionScan = "session_scan_finished"
         case storage = "report_storage_finished"
+        case validation = "ai_validation_finished"
+        case generationStarted = "report_generation_started"
+        case generationStage = "report_generation_stage_changed"
+        case generationFinished = "report_generation_finished"
     }
 
     private func emit(format: String, text: String, event: Event) {

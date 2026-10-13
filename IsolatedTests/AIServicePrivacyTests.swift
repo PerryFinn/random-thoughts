@@ -16,12 +16,12 @@ struct AIServicePrivacyTests {
         log.add(memory)
         let telemetry = DailyReportTelemetry(log: log)
         var copies: [String] = []
-        let flow = DailyReportFlow(storage: database, aiCredentials: credentials, codexSourceAccess: codex,
+        let flow = DailyReportFlow(storage: database, aiCredentials: credentials, aiAccess: ControlledAIService(), reportTokenizer: OfflineReportTokenizer(), codexSourceAccess: codex,
                                    now: { environment.clock.now }, timeZone: .gmt,
                                    performWindowEffect: { _ in }, performContextEffect: { _ in }, recordWindowMode: { _ in },
                                    recordCodexCheck: { _ in }, recordSessionScan: { _ in },
                                    recordAIStorage: { telemetry.storageFinished($0) },
-                                   redactCredentials: { $0 }, copyText: { copies.append($0) })
+                                   recordAIValidation: { _ in }, recordGeneration: { _ in }, redactCredentials: { $0 }, copyText: { copies.append($0) })
         flow.send(.open(.settings)); await flow.waitForStorage()
         flow.send(.requestSettingsPage(.aiServices))
         let session = try #require(flow.openWindows[.settings])

@@ -64,6 +64,7 @@ protocol DailyReportStorage: Actor {
     func saveCodexSource(_ settings: CodexDataSourceSettings) async throws
     func saveCodexDiagnostic(identity: CodexSourceIdentity, checkedAt: Date, version: CodexVersion?) async throws
     func saveAIService(_ service: SavedAIService) async throws
+    func saveAIValidation(_ proof: AIServiceValidation, matching baseline: AIValidationBaseline) async throws -> Bool
     func saveCurrentAIService(_ service: AIServiceType) async throws
 }
 
@@ -98,6 +99,8 @@ nonisolated struct ReportConfirmation: Identifiable, Sendable {
         case aiSettings(ReportSettingsContinuation)
         case deleteAICredential(AIServiceType, version: Int64, revision: UInt64)
         case unknownSources
+        case generate(ReportDay)
+        case validationExit(ReportSettingsContinuation)
     }
 
     let id = UUID()
@@ -110,10 +113,12 @@ nonisolated struct ReportConfirmation: Identifiable, Sendable {
     var aiEdit: AIServiceEdit? = nil
     var oldTimeZoneIdentifier: String? = nil
     var newTimeZoneIdentifier: String? = nil
+    var generationContext: ReportGenerationContext? = nil
+    var isGenerating = false
 
     var windowKind: AppWindowKind {
         switch kind {
-        case .settings, .codexSettings, .aiSettings, .deleteAICredential: .settings
+        case .settings, .codexSettings, .aiSettings, .deleteAICredential, .validationExit: .settings
         default: .report
         }
     }

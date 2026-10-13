@@ -1,0 +1,17 @@
+[package]
+name = "report-tokenizer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+tiktoken-rs = "=0.12.1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "debuginfo"
+panic = "unwind"

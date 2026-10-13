@@ -4,7 +4,7 @@ struct DailyReportAIServiceView: View {
     let flow: DailyReportFlow
     @FocusState private var focusedField: Field?
     private enum Field: Hashable { case endpoint, model, temperature, defaults, totalBudget, outputLimit, concurrency, credential }
-    private var canEdit: Bool { flow.isStorageReady && !flow.isSaving }
+    private var canEdit: Bool { flow.isStorageReady && !flow.isSaving && !flow.isValidatingAIService }
     private var canRead: Bool { canEdit && !flow.isReadingAICredential && flow.aiCredentialStatus == .readable }
 
     var body: some View {
@@ -126,13 +126,22 @@ struct DailyReportAIServiceView: View {
                 Text("已保存配置：\(flow.savedAIService.validation.status.title)")
                 Text("流式：\(flow.savedAIService.validation.streaming.title) · 结构化：\(flow.savedAIService.validation.structured.title)")
                     .font(.callout)
-                Text("协议校验尚未开放。保存、切换和启动不发送请求；未通过校验的配置不能用于生成。")
+                Text(flow.aiServiceEdit.configuration.service == .chatCompletions
+                     ? "显式校验最多发送三次少量合成请求（基础、流式、结构化），可能计费；不发送工作正文或生成偏好。"
+                     : "此协议校验尚未接入。保存、切换和启动不发送请求。")
                     .font(.callout).foregroundStyle(.secondary)
                 HStack {
                     Button("校验已保存配置") { flow.send(.requestAIValidation); focusError() }
                         .disabled(!canEdit).pointerStyle(canEdit ? .link : .default)
                     Button("设为当前") { flow.send(.makeAIServiceCurrent) }
                         .disabled(!flow.canMakeAIServiceCurrent).pointerStyle(flow.canMakeAIServiceCurrent ? .link : .default)
+                }
+                if flow.isValidatingAIService {
+                    HStack {
+                        ProgressView().controlSize(.small)
+                        Text("正在校验：\(flow.aiValidationStage?.rawValue ?? "准备")")
+                        Button("取消校验") { flow.send(.cancelAIValidation) }.pointerStyle(.link)
+                    }
                 }
                 if flow.aiServiceStorageError != nil {
                     Text("本地提交失败，完整旧配置和当前输入保留。请重试保存。")

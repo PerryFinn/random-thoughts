@@ -1,6 +1,6 @@
 # 手写、保存与日报历史
 
-本切片实现 [#23](https://github.com/PerryFinn/random-thoughts/issues/23)，沿用父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 第 1、2、9、11、12 组及 ADR-0002／0003。常规设置及其草稿影响由 [#24](daily-report-settings.md) 接入；候选扫描与快照由 [#26](codex-session-scan.md) 接入，AI、删除与重置由其他票承接，本轮不做兼容或迁移。
+本切片实现 [#23](https://github.com/PerryFinn/random-thoughts/issues/23)，沿用父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 第 1、2、9、11、12 组及 ADR-0002／0003。常规设置及其草稿影响由 [#24](daily-report-settings.md) 接入；候选扫描与快照由 [#26](codex-session-scan.md) 接入，Chat Completions 直接生成由 [#28](chat-completions-generation.md) 接入；删除与重置由其他票承接，不做兼容或迁移。
 
 ## 流程接口与内存状态
 
