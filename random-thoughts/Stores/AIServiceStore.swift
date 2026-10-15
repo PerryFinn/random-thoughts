@@ -226,7 +226,6 @@ final class AIServiceStore {
     private func startValidation() {
         guard !isValidating else { return }
         let saved = selected
-        guard saved.configuration.service != .messages else { notice = AIRequestError.unsupportedService.message; return }
         validationRevision += 1
         let revision = validationRevision
         isValidating = true

@@ -50,6 +50,7 @@ nonisolated final class AIHTTPTransport: Sendable {
             var data = Data(), response: HTTPURLResponse?, responseAt = started
             var parser = stream
             for try await event in exchange.events {
+                try Task.checkCancellation()
                 let receivedAt = await time.now()
                 guard receivedAt < deadline else { throw AIRequestError.timeout }
                 switch event {
@@ -72,6 +73,7 @@ nonisolated final class AIHTTPTransport: Sendable {
                     }
                 }
             }
+            try Task.checkCancellation()
             guard await time.now() < deadline else { throw AIRequestError.timeout }
             guard let response else { throw AIRequestError.invalidResponse }
             guard (200..<300).contains(response.statusCode) else {
@@ -89,16 +91,40 @@ nonisolated final class AIHTTPTransport: Sendable {
         let value = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         let error = value?["error"] as? [String: Any]
         let code = error?["code"] as? String ?? error?["type"] as? String
+        if service == .messages, code == "invalid_request_error", error?["param"] == nil,
+           let message = error?["message"] as? String, let reason = messagesFieldRejection(message) { return reason }
         return failure(status: status, code: code, parameter: error?["param"] as? String, service: service)
+    }
+    private static func messagesFieldRejection(_ message: String) -> AIRequestError? {
+        // Native errors have no required param/code. Recognize only explicit field evidence;
+        // invalid_request_error by itself also covers spend limits, so it remains unknown.
+        if message.hasPrefix("stream:"), message.contains("Extra inputs are not permitted") { return .streamingUnsupported }
+        if message.hasPrefix("output_config.format:"), message.contains("Extra inputs are not permitted") { return .structuredUnsupported }
+        if message.hasPrefix("adaptive thinking is not supported on this model")
+            || (message.hasPrefix("\"thinking.type.") && message.contains("\" is not supported for this model."))
+            || message.hasPrefix(#"To turn thinking off on this model, send "thinking": {"type": "between_tools"} instead of {"type": "disabled"}."#)
+            || (message.hasPrefix("output_config.effort ") && message.contains(" is not supported ")) { return .parameters }
+        let fields = ["anthropic-version", "max_tokens", "temperature", "thinking", "output_config", "output_config.effort", "output_config.format", "stream"]
+        if fields.contains(where: { message.hasPrefix($0 + ":") }) { return .parameters }
+        return nil
     }
     static func failure(status: Int, code: String?, parameter: String?, service: AIServiceType) -> AIRequestError {
         switch code {
         case "invalid_api_key", "authentication_error": return .authentication
+        case "rate_limit_error" where service == .messages: return .rateLimit
+        case "overloaded_error" where service == .messages: return .unavailable
+        case "timeout_error" where service == .messages: return .timeout
+        case "billing_error" where service == .messages: return .serviceLimit
         case "model_not_found": return .model
         case "invalid_parameter", "unsupported_parameter", "unsupported_value":
             if parameter == "stream" { return .streamingUnsupported }
             if let parameter {
-                let field = service == .responses ? "text.format" : "response_format"
+                let field: String
+                switch service {
+                case .chatCompletions: field = "response_format"
+                case .responses: field = "text.format"
+                case .messages: field = "output_config.format"
+                }
                 if parameter == field || parameter.hasPrefix(field + ".") { return .structuredUnsupported }
             }
             return .parameters

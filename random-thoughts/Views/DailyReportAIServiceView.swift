@@ -126,9 +126,7 @@ struct DailyReportAIServiceView: View {
                 Text("已保存配置：\(flow.savedAIService.validation.status.title)")
                 Text("流式：\(flow.savedAIService.validation.streaming.title) · 结构化：\(flow.savedAIService.validation.structured.title)")
                     .font(.callout)
-                Text(flow.aiServiceEdit.configuration.service != .messages
-                     ? "显式校验最多发送三次少量合成请求（基础、流式、结构化），可能计费；不发送工作正文或生成偏好。"
-                     : "此协议校验尚未接入。保存、切换和启动不发送请求。")
+                Text("显式校验最多发送三次少量合成请求（基础、流式、结构化），可能计费；不发送工作正文或生成偏好。")
                     .font(.callout).foregroundStyle(.secondary)
                 HStack {
                     Button("校验已保存配置") { flow.send(.requestAIValidation); focusError() }

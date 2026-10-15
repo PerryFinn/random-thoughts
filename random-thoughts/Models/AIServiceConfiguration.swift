@@ -202,7 +202,7 @@ nonisolated struct SavedAIService: Equatable, Codable, Sendable {
         AIValidationBaseline(service: configuration.service, endpoint: configuration.endpoint, model: configuration.model,
                              defaults: configuration.defaults, credentialVersion: credentialVersion,
                              outputLimit: configuration.outputLimit,
-                             authentication: configuration.service == .messages ? .messages(version: "2023-06-01") : .bearer,
+                             authentication: configuration.service == .messages ? .messages(version: MessagesAdapter.apiVersion) : .bearer,
                              store: configuration.service == .messages ? nil : false,
                              truncation: configuration.service == .responses ? .disabled : nil, probeContractVersion: 1)
     }

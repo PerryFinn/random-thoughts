@@ -312,7 +312,9 @@ struct AIServiceSettingsTests {
         #expect(flow.savedAIService.validation.streaming == .unknown)
         #expect(!flow.canMakeAIServiceCurrent)
         flow.send(.requestAIValidation)
-        #expect(flow.aiServiceNotice == AIRequestError.unsupportedService.message)
+        await flow.waitForAIValidation()
+        #expect(flow.savedAIService.hasMatchingValidation && flow.currentAIService == .messages)
+        #expect(await environment.ai.requests.count == 3)
         #expect(await environment.codex.checkCount == 0)
     }
 

@@ -5,6 +5,63 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct AIHTTPTests {
+    @Test(arguments: [false, true])
+    func messagesPreservesItsFullRouteAndNativeHeadersOverRealHTTP(_ streaming: Bool) async throws {
+        let server = try LoopbackChatServer(); defer { server.close() }
+        var endpoint = URLComponents(url: server.endpoint, resolvingAgainstBaseURL: false)!
+        endpoint.path = "/custom/messages/"; endpoint.percentEncodedQuery = "synthetic=30%2Fprobe&order=1"
+        let request = messagesRequest(endpoint: endpoint.url!, intent: .composeReport, schema: ReportPayload.schema,
+            streaming: streaming, defaults: .init(temperature: 0, thinking: .adaptive, effort: .high))
+        let operation = Task { try await AIServiceClient(transport: .production()).execute(request) }
+        let raw = try await server.request(), wire = String(decoding: raw, as: UTF8.self)
+        #expect(wire.hasPrefix("POST /custom/messages/?synthetic=30%2Fprobe&order=1 HTTP/1.1\r\n"))
+        #expect(wire.lowercased().contains("x-api-key: synthetic_messages_key_30"))
+        #expect(wire.lowercased().contains("anthropic-version: 2023-06-01") && !wire.lowercased().contains("authorization:"))
+        let marker = try #require(raw.range(of: Data("\r\n\r\n".utf8)))
+        let object = try #require(try JSONSerialization.jsonObject(with: raw[marker.upperBound...]) as? [String: Any])
+        #expect(object["max_tokens"] as? Int == 4_096 && object["stream"] as? Bool == streaming)
+        #expect((object["output_config"] as? [String: Any])?["format"] != nil)
+        #expect(object["store"] == nil && object["truncation"] == nil && object["response_format"] == nil)
+        let data = streaming ? MessagesFixture.sse(MessagesFixture.events(syntheticReportPayload)) : MessagesFixture.completion(syntheticReportPayload)
+        try server.respond(data)
+        #expect(try await operation.value == syntheticReportPayload)
+    }
+
+    @Test func messagesThinkingIsEffectiveProgressBeyondFiveMinutesAndStopsWithoutSocketClosure() async throws {
+        let environment = try IsolatedTestEnvironment(); defer { environment.close() }
+        let server = try LoopbackChatServer(); defer { server.close() }
+        let time = AITransportTime(now: { await environment.clock.now }, sleep: { try await environment.clock.sleep(for: $0) })
+        let access = AIServiceClient(transport: .init(configuration: .ephemeral, time: time))
+        let operation = Task { try await access.execute(messagesRequest(endpoint: server.endpoint, streaming: true)) }
+        _ = try await server.request(); await environment.clock.waitForSleep(number: 1)
+        try server.headers(); try server.write(Data(": connected\n\n".utf8)); await environment.clock.waitForSleep(number: 2)
+        let events = MessagesFixture.events("OK")
+        try server.write(MessagesFixture.sse(Array(events.prefix(2))))
+        await environment.clock.waitForSleep(number: 3)
+        for index in 0..<5 {
+            environment.clock.advance(by: 70)
+            try server.write(MessagesFixture.sse([events[2]]))
+            await environment.clock.waitForSleep(number: 4 + index)
+        }
+        try server.write(MessagesFixture.sse(Array(events.dropFirst(3))))
+        #expect(try await operation.value == "OK")
+    }
+
+    @Test(arguments: AIServiceType.allCases)
+    func cancellingHTTPImmediatelyFinishesWithoutAcceptingALateTerminalEvent(_ service: AIServiceType) async throws {
+        let server = try LoopbackChatServer(); defer { server.close() }
+        let base = makeRequest(endpoint: server.endpoint, service: service)
+        let request = AIRequest(intent: .probe(.streaming), configuration: base.configuration, credential: base.credential,
+            instruction: base.instruction, input: base.input, schema: nil, streaming: true)
+        let operation = Task { try await AIServiceClient(transport: .production()).execute(request) }
+        _ = try await server.request()
+        try server.headers(); try server.write(Data(": connected\n\n".utf8))
+        operation.cancel()
+        do { _ = try await operation.value; Issue.record("Cancellation accepted a response") }
+        catch { #expect(AIRequestError.reason(for: error) == .cancelled) }
+        try? server.write(Data("data: LATE_TERMINAL_30\n\n".utf8))
+    }
+
     @Test func responsesValidProgressCanRunBeyondFiveMinutesAndFinishWithTheSocketStillOpen() async throws {
         let environment = try IsolatedTestEnvironment(); defer { environment.close() }
         let server = try LoopbackChatServer(); defer { server.close() }
@@ -50,7 +107,7 @@ struct AIHTTPTests {
         #expect(try await operation.value == syntheticReportPayload)
     }
 
-    @Test(arguments: ["connection", "nonstreaming", "streaming"], [AIServiceType.chatCompletions, .responses])
+    @Test(arguments: ["connection", "nonstreaming", "streaming"], AIServiceType.allCases)
     func oneRequestTimesOutAtItsOwnPhaseDeadlineWithoutRetrying(_ phase: String, _ service: AIServiceType) async throws {
         let environment = try IsolatedTestEnvironment(); defer { environment.close() }
         let server = try LoopbackChatServer(); defer { server.close() }
@@ -59,8 +116,13 @@ struct AIHTTPTests {
         var request = URLRequest(url: server.endpoint); request.httpMethod = "POST"; request.httpBody = Data("synthetic".utf8)
         let parser: (any AIResponseStream)?
         if phase != "streaming" { parser = nil }
-        else if service == .responses { parser = ResponsesStream() }
-        else { parser = ChatCompletionsStream() }
+        else {
+            parser = switch service {
+            case .chatCompletions: ChatCompletionsStream()
+            case .responses: ResponsesStream()
+            case .messages: MessagesStream()
+            }
+        }
         let operation = Task { try await transport.send(request, stream: parser, service: service) }
         _ = try await server.request()
         await environment.clock.waitForSleep(number: 1)
@@ -74,15 +136,16 @@ struct AIHTTPTests {
         catch { #expect(AIRequestError.reason(for: error) == .timeout) }
     }
 
-    @Test(arguments: [AIServiceType.chatCompletions, .responses])
+    @Test(arguments: AIServiceType.allCases)
     func realHTTPPreservesEndpointAndDoesNotFollowRedirects(_ service: AIServiceType) async throws {
         let server = try LoopbackChatServer(); defer { server.close() }
         let access = AIServiceClient(transport: .production())
-        let request = service == .responses ? responsesRequest(endpoint: server.endpoint) : makeRequest(endpoint: server.endpoint)
+        let request = makeRequest(endpoint: server.endpoint, service: service)
         let operation = Task { try await access.execute(request) }
         let wire = String(decoding: try await server.request(), as: UTF8.self)
         #expect(wire.hasPrefix("POST /complete?synthetic=28 HTTP/1.1\r\n"))
-        #expect(wire.contains("Authorization: Bearer \(request.credential)"))
+        if service == .messages { #expect(wire.lowercased().contains("x-api-key: \(request.credential.lowercased())")) }
+        else { #expect(wire.contains("Authorization: Bearer \(request.credential)")) }
         try server.respond(Data(), status: 302, fields: ["Location": "http://127.0.0.1:9/forbidden"])
         do { _ = try await operation.value; Issue.record("Redirect was accepted") }
         catch { #expect(AIRequestError.reason(for: error) == .redirect) }
@@ -126,27 +189,33 @@ struct AIHTTPTests {
         #expect(try await operation.value == syntheticReportPayload)
     }
 
-    @Test(arguments: [AIServiceType.chatCompletions, .responses])
+    @Test(arguments: AIServiceType.allCases)
     func aLegalStreamTerminatorCompletesWithoutWaitingForTheConnectionToClose(_ service: AIServiceType) async throws {
         let server = try LoopbackChatServer(); defer { server.close() }
-        let base = service == .responses ? responsesRequest(endpoint: server.endpoint) : makeRequest(endpoint: server.endpoint)
+        let base = makeRequest(endpoint: server.endpoint, service: service)
         let request = AIRequest(intent: .probe(.streaming), configuration: base.configuration, credential: base.credential,
                                 instruction: base.instruction, input: base.input, schema: nil, streaming: true)
         let operation = Task { try await AIServiceClient(transport: .production()).execute(request) }
         _ = try await server.request()
         try server.headers()
-        let data = service == .responses ? ResponsesFixture.sse(ResponsesFixture.events("OK"))
-            : Data((ChatCompletionsStreamTests.event(content: "OK", finish: "stop") + "\n\ndata: [DONE]\n\n").utf8)
+        let data: Data
+        switch service {
+        case .chatCompletions: data = Data((ChatCompletionsStreamTests.event(content: "OK", finish: "stop") + "\n\ndata: [DONE]\n\n").utf8)
+        case .responses: data = ResponsesFixture.sse(ResponsesFixture.events("OK"))
+        case .messages: data = MessagesFixture.sse(MessagesFixture.events("OK"))
+        }
         try server.write(data)
         // The server intentionally keeps the socket open after the legal SSE end.
         #expect(try await operation.value == "OK")
     }
 
-    @Test func explicitRateLimitCarriesOnlyReliableWaitEvidence() async throws {
+    @Test(arguments: AIServiceType.allCases)
+    func explicitRateLimitCarriesOnlyReliableWaitEvidence(_ service: AIServiceType) async throws {
         let server = try LoopbackChatServer(); defer { server.close() }
-        let operation = Task { try await ChatCompletionsAdapter(transport: .production()).execute(makeRequest(endpoint: server.endpoint)) }
+        let operation = Task { try await AIServiceClient(transport: .production()).execute(makeRequest(endpoint: server.endpoint, service: service)) }
         _ = try await server.request()
-        try server.respond(Data(#"{"error":{"code":"rate_limit_exceeded","message":"UNSAFE_RAW_ERROR_28"}}"#.utf8), status: 429, fields: ["Retry-After": "60"])
+        let error: [String: Any] = ["error": ["type": service == .messages ? "rate_limit_error" : "rate_limit_exceeded", "message": "UNSAFE_RAW_ERROR_30"]]
+        try server.respond(try JSONSerialization.data(withJSONObject: error), status: 429, fields: ["Retry-After": "60"])
         do { _ = try await operation.value; Issue.record("Rate limit accepted") }
         catch {
             let failure = try #require(error as? AIRequestFailure)
@@ -159,7 +228,9 @@ struct AIHTTPTests {
         #expect(AIHTTPTransport.failure(status: 429, data: Data(), service: .chatCompletions) == .serviceLimit)
     }
 
-    private func makeRequest(endpoint: URL) -> AIRequest {
+    private func makeRequest(endpoint: URL, service: AIServiceType = .chatCompletions) -> AIRequest {
+        if service == .responses { return responsesRequest(endpoint: endpoint) }
+        if service == .messages { return messagesRequest(endpoint: endpoint) }
         var configuration = AIServiceConfiguration(service: .chatCompletions)
         configuration.endpoint = endpoint.absoluteString; configuration.model = "synthetic"
         return .init(intent: .probe(.basic), configuration: configuration, credential: "SYNTHETIC_HTTP_KEY_28",

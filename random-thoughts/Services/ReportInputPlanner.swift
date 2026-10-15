@@ -27,7 +27,7 @@ nonisolated struct ReportInputPlan: Sendable {
         let instructionTokens = try await tokenizer.count(instruction)
         var fixed = try checkedAdd(instructionTokens, 1_024)
         if let schema {
-            fixed = try checkedAdd(fixed, await tokenizer.count(AIServiceClient.serializedFormat(schema, service: context.service.configuration.service)))
+            fixed = try checkedAdd(fixed, await tokenizer.count(AIServiceClient.serializedFormat(schema, configuration: context.service.configuration)))
         }
         guard fixed < limit else { throw AIRequestError.budget }
 

@@ -1,6 +1,6 @@
 # 构建与隔离测试
 
-本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#29](https://github.com/PerryFinn/random-thoughts/issues/29) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)，#29 的原生 output／SSE、配置与共享流程边界见 [responses-generation.md](responses-generation.md)。
+本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#30](https://github.com/PerryFinn/random-thoughts/issues/30) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)，#29 的原生 output／SSE、配置与共享流程边界见 [responses-generation.md](responses-generation.md)，#30 的原生 Messages 内容块／thinking／SSE 边界见 [messages-generation.md](messages-generation.md)。
 
 ## 命令
 
@@ -374,3 +374,30 @@ code-review 固定起点为 `b1b7320e7b6bc8f64476ce0c7a571c6456c77837`，两个�
 最终双轴复核：Standards 为 0 项硬性违反、0 项可行动气味；Spec 为 0 项未解决缺失、实现错误或范围扩张。修复后全套再次为 38 个套件、180 项通过，生产纯构建再次为 `BUILD SUCCEEDED`；暂存差异空白检查通过。结束前只读核对远端 main 仍为 `123948d`，#28／#29 仍开放，原生阻塞关系未变。
 
 未执行：应用启动、旧宿主／UI 测试、实际窗口／键盘／焦点／剪贴板／睡眠唤醒交互、截图、macOS 26.5／Intel 运行、真实 Codex／AI、真实端点兼容性／语义／性能验收、系统日志落盘。完整分批由 #31 承接，真实系统与三协议组合验收由 #35／#36 承接；隔离假服务不代表真实兼容，#20 整体验收未完成。本次不推送、不关闭 Issue。
+
+## #30 Messages 校验与直接生成验证记录
+
+2026-10-15，仅在本地 `06da0cf044876ddadb0c0e8879188d3be128770b` 上实现 #30。工作区起始干净，基线已包含 #28 的 `b1b7320` 与 #29 的 `06da0cf`。只读核对远端 main 为 `123948d`，#30 仍被开放的 #28 阻塞，#28 的原生阻塞项仍为开放的 #24／#26／#27；本地继续实现不解除远端阻塞。
+
+先更新 Messages 契约，再通过隔离入口依次观察未接入原生请求、缺少原生 schema、未接入 SSE、流程校验被拦截、原生错误分类及字段拒绝证据的失败，逐步完成最小实现。回环 HTTP 取消测试另复现事件流因取消直接结束却被误报坏响应的竞态，传输在事件接收及结束边界检查取消，三协议均回归。
+
+验证入口与行为：
+
+- `MessagesWireTests`：原生 x-api-key／固定版本头／system／messages／max_tokens；温度 0 与未设置不同，thinking 默认／关闭／adaptive，effort 与 schema 共存但不虚构其他协议字段。仅提取 text，思考不进入正文；拒绝、截断、工具、未知内容、坏身份或缺少结束状态失败。事实提取／归并／成文三个业务意图均使用原生 schema 编码。
+- `MessagesStreamTests`：逐字节 Unicode、组合字符、多行 data、LF／CRLF／CR，thinking／signature／redacted_thinking 与文本块的独立顺序／索引／类型；缺少起止、签名、块完成或 message_delta／message_stop，事件冲突、工具、拒绝、截断、空文本及晚到内容均拒绝。ping／未知事件不冒充进展，允许合法的多个 message_delta，但 usage 不能替代结束状态。
+- `MessagesErrorTests`：HTTP 与 SSE 原生错误、受支持的明确字段拒绝、必要控制与其他协议字段拒绝、对应可选探测与正式请求的区别；每次失败只发送一次。403／404／429 或模糊 invalid_request_error 不猜 Key／模型／配额；账单错误不推断余额不足，错误提示不含服务原文。
+- `AIHTTPTests`：唯一允许回环端口的真实 URLSession 假服务，原生非流式及 SSE、完整路由／query／尾斜杠；三协议验证重定向拒绝、30 秒连接／300 秒完整结果／90 秒无进展、立即取消、合法结束不等连接关闭，以及可靠 Retry-After。Messages thinking 进展每次推进受控时钟 70 秒，累计超过五分钟仍正常完成，不使用任意测试 sleep。
+- `MessagesFlowTests`：同一动作／状态接口贯通显式三探测、当前身份与资格、确认快照、中文六章、实际来源、编辑及保存失败／成功；不串配置／Key，不隐式重扫。英文固定文本回退、原生 output_config（含 effort）的真实 tokenizer 预算临界值、完整当天不裁尾、校验临时未完成保留旧结论、取消／离开／迟到回调保护均通过。
+- `MessagesPrivacyTests`：真实 SQLite／CryptoKit／tokenizer／CocoaLumberjack 配合原生适配器，验证合成探测不带工作／偏好、Key 只在原生鉴权、每次实际输入及入草稿遮盖、失败原子保护、明确编辑／复制／保存及重开。正文／思考／错误／来源等唯一合成标记不进入日志对象、UserDefaults 或禁止的数据库出口，保存前没有持久草稿。
+
+实际结果：
+
+- `rtk proxy ./script/test-isolated.sh --filter 'Messages|ResponsesErrorTests|ChatCompletionsValidationTests|AIHTTPTests|AIServiceSettingsTests'`：8 个套件、53 项通过；新增隐私集成单独通过。字段验证回归随后纳入全套。
+- `rtk proxy ./script/test-isolated.sh`：最终全套 43 个套件、207 项通过，包含原两协议与沙盒拒绝能力回归。首次全套曾有一次回环假服务创建 `.setup` 失败，后续两次完整入口未复现；未据此推断生产端问题。
+- `rtk proxy ./script/build.sh`：`BUILD SUCCEEDED`，仅构建 arm64 Debug 生产应用；无新增 Swift 编译警告，保留已有 AppIntents 元数据缺少框架依赖的工具提示。
+
+code-review 固定起点为 `06da0cf044876ddadb0c0e8879188d3be128770b`，两个独立代理评审本票暂存差异。Standards 初审为 0 项硬性违反、0 项可行动气味；Spec 初审发现 1 项 P2：遗漏已知模型明确拒绝 disabled thinking 的原生提示，误归未知而保留对应基线资格。先补文档及 HTTP／SSE 回归，亲检两项断言失败，再补有限前缀识别，不增加模式、改参或重试。`rtk proxy ./script/test-isolated.sh --filter 'MessagesErrorTests|MessagesFlowTests|MessagesPrivacyTests'` 为 3 个套件、14 项通过。最终双轴复核均为 0 项未解决；修复后完整隔离测试 43 个套件、207 项通过，纯构建再次 `BUILD SUCCEEDED`，暂存空白检查通过。结束前只读核对远端 main 仍为 `123948d`，#30／#28 仍开放，原生阻塞关系未变。
+
+清除了 Messages 的未接入校验拦截及占位文案；schema 预算入口改为接收实际配置，所有调用方同步更新。未删除文件、数据库或用户数据，未增加迁移、兼容分支、预算调度副本或生成档案。执行期间工程文件出现仅键顺序调整的外部改动，保留并排除在本票提交之外。
+
+未执行：应用启动、旧宿主／UI 测试、实际窗口／键盘／焦点／剪贴板／睡眠唤醒交互、截图、macOS 26.5／Intel 运行、真实 Codex／AI、真实端点兼容性／语义／性能验收、系统日志落盘。完整分批由 #31 承接，真实组合证据由 #36 承接，授权系统／语义验收由 #35 承接；#20 整体验收未完成。本次不推送、不关闭 Issue。

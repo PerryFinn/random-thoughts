@@ -38,6 +38,7 @@ let package = Package(
                 "Services/ChatCompletionsStream.swift", "Models/AIRequest.swift", "Services/AIHTTPTransport.swift", "Services/ChatCompletionsAdapter.swift",
                 "Services/ResponsesAdapter.swift", "Services/ResponsesStream.swift", "Services/ServerSentEvents.swift", "Services/AIJSONValue.swift",
                 "Services/AIServiceClient.swift",
+                "Services/MessagesAdapter.swift", "Services/MessagesStream.swift",
                 "Models/ReportPayload.swift",
                 "Services/OfflineReportTokenizer.swift",
                 "Views/DailyReportGenerationStatusView.swift", "Models/ReportGeneration.swift", "Services/ReportInputPlanner.swift", "Stores/ReportGenerationStore.swift",
