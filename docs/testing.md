@@ -1,6 +1,6 @@
 # 构建与隔离测试
 
-本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#28](https://github.com/PerryFinn/random-thoughts/issues/28) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)。
+本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#29](https://github.com/PerryFinn/random-thoughts/issues/29) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)，#29 的原生 output／SSE、配置与共享流程边界见 [responses-generation.md](responses-generation.md)。
 
 ## 命令
 
@@ -349,3 +349,28 @@ Spec 随后提出 `[r]:\n#\n---` 可能也是合法引用。仓库隔离入口�
 修复后的生产纯构建再次为 `BUILD SUCCEEDED`，只保留原有 AppIntents 工具提示。`rtk proxy bash -n script/build-tokenizer.sh script/test-isolated.sh script/build.sh` 与暂存差异空白检查均通过。2026-10-14 再次只读核对远端 main 仍为 `123948d`，#24／#26／#27／#28 均开放，#28→#27／#26／#24 的原生阻塞关系未变；前置票仍分别被 #23／#25／#23 阻塞。
 
 未执行：生产应用启动、旧宿主／UI 测试、实际窗口／键盘／焦点／剪贴板／睡眠唤醒交互、截图、macOS 26.5／Intel 运行、真实 Codex／AI、实际服务的语义与性能验收、系统日志落盘。直接预算外的完整分批由 #31 承接，真实语义与系统验收由授权后的 #35 承接；本票不表示 #20 整体首次交付完成。
+
+## #29 Responses 校验与直接生成验证记录
+
+2026-10-15，仅在本地 `b1b7320e7b6bc8f64476ce0c7a571c6456c77837` 上实现 #29。先核对 #28 的本地代码、160 项隔离测试记录及纯构建记录；远端 main 仍为 `123948d`，#29 仍被开放的 #28 阻塞，#28 仍被开放的 #24／#26／#27 阻塞。本地继续实现不改变远端阻塞关系。
+
+先更新 Responses 契约，再观察缺少原生适配器、schema 编码、SSE 与共享流程接入的红测试，逐步实现。明确可选字段拒绝被误归类、HTTP 200 内的失败终态被误当截断、错误响应 ID 未核对的回归，均先失败再修复。
+
+验证入口与行为：
+
+- `ResponsesWireTests`：原生 `instructions`／`input`／Bearer／`reasoning.effort`／O／store／truncation／text.format；未设默认值不发送；schema 预算使用实际序列化内容。按 `output` 数组中的已完成 assistant 内容顺序拼接，不使用 SDK 聚合字段；reasoning 不当正文，拒绝／工具／未知／非完成输出不能成文。
+- `ResponsesStreamTests`：逐字节 Unicode、组合字符、多行 data、LF／CRLF／CR，原生生命周期及输出项／内容块的完整终态；错误序号／身份／文本／顺序、拒绝、失败、截断、未知项、晚到事件和 `[DONE]` 拒绝。心跳和未知事件不算有效进展，错误终态必须匹配已知响应身份。
+- `AIHTTPTests`：唯一允许回环端口的真实 URLSession 假服务，保留完整路由／query／尾斜杠与原生字段；两协议均验证 30 秒连接／300 秒非流式／90 秒无进展期限、拒绝重定向、合法终止不等连接关闭。Responses 原生内容每次推进受控时钟 70 秒，累计超过五分钟仍能完成；不靠任意测试 sleep。
+- `ResponsesErrorTests`：明确 stream／text.format 可选拒绝只影响相应探测，正式请求不降级重试；必要字段拒绝、HTTP 200 的失败对象／失败 SSE 与原生鉴权错误正确分类。403／404／429 无可靠代码时不撤销资格，不展示原始服务错误。
+- `ResponsesFlowTests`：统一动作贯通保存、三个合成探测、设为当前、固定快照、六章草稿及来源保存；不串用其他协议配置／凭据，不隐式重扫。真实离线 tokenizer 验证 Responses schema 包装的预算临界值，低于直接预算停止且不发送；不支持可选能力时走英文固定文本契约。临时校验故障保留完整旧结论，明确配置错误撤销匹配资格并保留当前身份；保存失败、取消和迟到结果保留原正文与来源。
+- `ResponsesPrivacyTests`：原生适配器／SSE 经统一流程接入真实 SQLite／CryptoKit／离线 tokenizer／CocoaLumberjack；探测只含合成输入、实际模型、默认值与 O，不含工作正文或偏好，Key 只进入原生鉴权。临时会话、路径、外发编号和凭据不落库或偏好，整个日志对象只含固定字段；显式编辑后保存并重开，只恢复允许持久化的数据。
+
+实际结果：`rtk proxy ./script/test-isolated.sh` 全套 38 个套件、180 项测试通过，包含原有 Chat Completions 与沙盒拒绝回归；原生端到端、预算、错误和流程相关套件也分别通过。`rtk proxy ./script/build.sh` 为 `BUILD SUCCEEDED`，只构建 arm64 Debug 生产应用；无新增 Swift 编译警告，保留已有 AppIntents 元数据缺少框架依赖的工具提示。
+
+清理了生产入口的 Chat Completions 单协议路由，以及预算中固定使用 Chat Completions schema 的分支；使用一个服务选择入口更新全部调用方。两协议共用纯 SSE 分帧与 JSON 值编码，原 Chat 私有副本移除，协议语义仍独立。`ChatCompletionsHTTPTests.swift` 更名为 `AIHTTPTests.swift`，保持真实 HTTP 测试在同一串行套件使用唯一回环端口。未删除或重置用户数据库／用户数据，没有迁移、兼容入口、生成档案或自动重试。
+
+code-review 固定起点为 `b1b7320e7b6bc8f64476ce0c7a571c6456c77837`，两个独立代理评审本次暂存差异，不包含此前 15 个未推送提交。Standards 初审为 0 项硬性违反、0 项可行动气味；Spec 初审发现 1 项 P2：遗漏原生 `unsupported_value` 参数错误，误归未知而不按明确拒绝处理。必要字段、可选探测与正式请求的参数回归先产生 14 项断言失败，再补入同一固定错误分类，不增加降级重试。修复后 `rtk proxy ./script/test-isolated.sh --filter 'ResponsesErrorTests|ResponsesFlowTests|ChatCompletionsValidationTests|AIHTTPTests'` 为 4 个套件、23 项测试通过。
+
+最终双轴复核：Standards 为 0 项硬性违反、0 项可行动气味；Spec 为 0 项未解决缺失、实现错误或范围扩张。修复后全套再次为 38 个套件、180 项通过，生产纯构建再次为 `BUILD SUCCEEDED`；暂存差异空白检查通过。结束前只读核对远端 main 仍为 `123948d`，#28／#29 仍开放，原生阻塞关系未变。
+
+未执行：应用启动、旧宿主／UI 测试、实际窗口／键盘／焦点／剪贴板／睡眠唤醒交互、截图、macOS 26.5／Intel 运行、真实 Codex／AI、真实端点兼容性／语义／性能验收、系统日志落盘。完整分批由 #31 承接，真实系统与三协议组合验收由 #35／#36 承接；隔离假服务不代表真实兼容，#20 整体验收未完成。本次不推送、不关闭 Issue。

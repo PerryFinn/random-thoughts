@@ -25,7 +25,8 @@ nonisolated final class AIHTTPTransport: Sendable {
         return AIHTTPTransport(configuration: c, time: .production)
     }
 
-    @concurrent func send(_ request: URLRequest, streaming: Bool) async throws -> Data {
+    @concurrent func send(_ request: URLRequest, stream: (any AIResponseStream)?, service: AIServiceType) async throws -> Data {
+        let streaming = stream != nil
         let started = await time.now()
         let exchange = AIHTTPExchange(configuration: configuration)
         func timer(until deadline: Date) -> Task<Void, Never> {
@@ -47,7 +48,7 @@ nonisolated final class AIHTTPTransport: Sendable {
             guard await time.now() < deadline else { throw AIRequestError.timeout }
             exchange.start(request)
             var data = Data(), response: HTTPURLResponse?, responseAt = started
-            var parser = ChatCompletionsStream()
+            var parser = stream
             for try await event in exchange.events {
                 let receivedAt = await time.now()
                 guard receivedAt < deadline else { throw AIRequestError.timeout }
@@ -60,13 +61,13 @@ nonisolated final class AIHTTPTransport: Sendable {
                     watchdog = timer(until: deadline)
                 case .data(let chunk):
                     data.append(chunk)
-                    if streaming, let response, (200..<300).contains(response.statusCode), try parser.append(chunk) {
+                    if let response, (200..<300).contains(response.statusCode), try parser?.append(chunk) == true {
                         watchdog.cancel()
                         deadline = receivedAt.addingTimeInterval(90)
                         watchdog = timer(until: deadline)
                     }
-                    if streaming, parser.hasTerminated {
-                        _ = try parser.finish()
+                    if parser?.hasTerminated == true {
+                        _ = try parser?.finish()
                         return data
                     }
                 }
@@ -74,31 +75,38 @@ nonisolated final class AIHTTPTransport: Sendable {
             guard await time.now() < deadline else { throw AIRequestError.timeout }
             guard let response else { throw AIRequestError.invalidResponse }
             guard (200..<300).contains(response.statusCode) else {
-                let reason = Self.failure(status: response.statusCode, data: data)
+                let reason = Self.failure(status: response.statusCode, data: data, service: service)
                 let retryAt = reason == .rateLimit ? Self.retryDate(response.value(forHTTPHeaderField: "Retry-After"), now: responseAt) : nil
                 throw AIRequestFailure(reason: reason, retryAt: retryAt)
             }
-            if streaming { _ = try parser.finish() }
+            _ = try parser?.finish()
             return data
         } onCancel: { exchange.cancel(.cancelled) }
     }
 
-    static func failure(status: Int, data: Data) -> AIRequestError {
+    static func failure(status: Int, data: Data, service: AIServiceType) -> AIRequestError {
         if (300..<400).contains(status) { return .redirect }
         let value = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         let error = value?["error"] as? [String: Any]
         let code = error?["code"] as? String ?? error?["type"] as? String
+        return failure(status: status, code: code, parameter: error?["param"] as? String, service: service)
+    }
+    static func failure(status: Int, code: String?, parameter: String?, service: AIServiceType) -> AIRequestError {
         switch code {
         case "invalid_api_key", "authentication_error": return .authentication
         case "model_not_found": return .model
-        case "invalid_parameter", "unsupported_parameter":
-            if error?["param"] as? String == "stream" { return .streamingUnsupported }
-            if error?["param"] as? String == "response_format" { return .structuredUnsupported }
+        case "invalid_parameter", "unsupported_parameter", "unsupported_value":
+            if parameter == "stream" { return .streamingUnsupported }
+            if let parameter {
+                let field = service == .responses ? "text.format" : "response_format"
+                if parameter == field || parameter.hasPrefix(field + ".") { return .structuredUnsupported }
+            }
             return .parameters
-        case "invalid_request_error": return error?["param"] is String ? .parameters : .unknown
+        case "invalid_request_error": return parameter != nil ? .parameters : .unknown
         case "context_length_exceeded": return .contextLimit
         case "rate_limit_exceeded": return .rateLimit
         case "insufficient_quota": return .quota
+        case "server_error", "api_error": return .unavailable
         default: return status == 429 ? .serviceLimit : status >= 500 ? .unavailable : .unknown
         }
     }

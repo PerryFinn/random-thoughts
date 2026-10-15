@@ -28,6 +28,10 @@ final class SyntheticTransport: Sendable {
         }
     }
 
+    func enqueue(_ data: Data, statusCode: Int = 200) {
+        SyntheticURLProtocol.routes.withLock { $0[endpoint]?.replies.append(.init(data: data, statusCode: statusCode)) }
+    }
+
     func fail() {
         SyntheticURLProtocol.routes.withLock {
             let requests = $0[endpoint]?.requests ?? []
@@ -48,9 +52,11 @@ final class SyntheticTransport: Sendable {
 
 private final class SyntheticURLProtocol: URLProtocol, @unchecked Sendable {
     struct Route: Sendable {
+        struct Reply: Sendable { let data: Data; let statusCode: Int }
         var result: Result<Data, URLError>
         var statusCode = 200
         var requests: [URLRequest] = []
+        var replies: [Reply] = []
     }
 
     // URLProtocol callbacks can arrive on URLSession threads. All shared state uses this lock.
@@ -63,6 +69,12 @@ private final class SyntheticURLProtocol: URLProtocol, @unchecked Sendable {
         let route = Self.routes.withLock { routes -> Route? in
             guard let url = request.url, routes[url] != nil else { return nil }
             routes[url]?.requests.append(request)
+            if let reply = routes[url]?.replies.first {
+                routes[url]?.replies.removeFirst()
+                var response = routes[url]!
+                response.result = .success(reply.data); response.statusCode = reply.statusCode
+                return response
+            }
             return routes[url]
         }
         guard let route, let url = request.url else {

@@ -339,6 +339,7 @@ final class ReportFlowTestEnvironment {
     var codexEvents: [CodexCheckEvent] = []
     var scanEvents: [CodexScanEvent] = []
     var aiStorageEvents: [AIServiceStorageEvent] = []
+    var aiValidationEvents: [AIValidationEvent] = []
     var redact: @Sendable (String) throws -> String = { $0 }
     var tokenizer: any ReportTokenCounting = OfflineReportTokenizer()
 
@@ -355,7 +356,7 @@ final class ReportFlowTestEnvironment {
             recordCodexCheck: { self.codexEvents.append($0) },
             recordSessionScan: { self.scanEvents.append($0) },
             recordAIStorage: { self.aiStorageEvents.append($0) },
-            recordAIValidation: { _ in }, recordGeneration: { _ in }, redactCredentials: self.redact,
+            recordAIValidation: { self.aiValidationEvents.append($0) }, recordGeneration: { _ in }, redactCredentials: self.redact,
             copyText: { self.copies.append($0) }
         )
     }

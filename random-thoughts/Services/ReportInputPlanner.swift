@@ -26,7 +26,9 @@ nonisolated struct ReportInputPlan: Sendable {
         let limit = difference / 5 * 4 + difference % 5 * 4 / 5
         let instructionTokens = try await tokenizer.count(instruction)
         var fixed = try checkedAdd(instructionTokens, 1_024)
-        if let schema { fixed = try checkedAdd(fixed, await tokenizer.count(ChatCompletionsAdapter.serializedFormat(schema))) }
+        if let schema {
+            fixed = try checkedAdd(fixed, await tokenizer.count(AIServiceClient.serializedFormat(schema, service: context.service.configuration.service)))
+        }
         guard fixed < limit else { throw AIRequestError.budget }
 
         struct Turn: Encodable, Sendable {

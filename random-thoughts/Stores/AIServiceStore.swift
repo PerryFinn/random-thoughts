@@ -226,7 +226,7 @@ final class AIServiceStore {
     private func startValidation() {
         guard !isValidating else { return }
         let saved = selected
-        guard saved.configuration.service == .chatCompletions else { notice = AIRequestError.unsupportedService.message; return }
+        guard saved.configuration.service != .messages else { notice = AIRequestError.unsupportedService.message; return }
         validationRevision += 1
         let revision = validationRevision
         isValidating = true
@@ -250,14 +250,14 @@ final class AIServiceStore {
                         }
                         if stage == .streaming { proof.streaming = .supported }
                         if stage == .structured { proof.structured = .supported }
-                        recordValidation(.init(service: .chatCompletions, stage: stage, result: .success, capability: .supported))
+                        recordValidation(.init(service: saved.configuration.service, stage: stage, result: .success, capability: .supported))
                     } catch {
                         let rawFailure = AIRequestError.reason(for: error)
                         let optionalRejection = (stage == .streaming && rawFailure == .streamingUnsupported)
                             || (stage == .structured && rawFailure == .structuredUnsupported)
                         let failure = !optionalRejection && [.streamingUnsupported, .structuredUnsupported].contains(rawFailure) ? .parameters : rawFailure
                         guard !Task.isCancelled, revision == validationRevision else { return }
-                        recordValidation(.init(service: .chatCompletions, stage: stage,
+                        recordValidation(.init(service: saved.configuration.service, stage: stage,
                                                result: failure.invalidatesConfiguration ? .failure : .unfinished,
                                                capability: [.streamingUnsupported, .structuredUnsupported].contains(failure) ? .unsupported : .unknown))
                         if stage == .streaming, failure == .streamingUnsupported { proof.streaming = .unsupported; continue }

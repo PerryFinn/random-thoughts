@@ -26,7 +26,7 @@ nonisolated struct ChatCompletionsAdapter: AIServiceAccess {
         http.setValue("application/json", forHTTPHeaderField: "Content-Type")
         http.httpBody = try Self.encoder().encode(body)
         let data: Data
-        do { data = try await transport.send(http, streaming: request.streaming) }
+        do { data = try await transport.send(http, stream: request.streaming ? ChatCompletionsStream() : nil, service: .chatCompletions) }
         catch {
             let reason = AIRequestError.reason(for: error)
             if case .composeReport = request.intent, [.streamingUnsupported, .structuredUnsupported].contains(reason) {
@@ -58,39 +58,15 @@ private nonisolated struct ChatRequest: Encodable {
 }
 
 private nonisolated struct ChatResponseFormat: Encodable {
-    struct Schema: Encodable { let name = "daily_report"; let strict = true; let schema: JSONValue }
+    struct Schema: Encodable { let name = "daily_report"; let strict = true; let schema: AIJSONValue }
     let type = "json_schema"
     let jsonSchema: Schema
     enum CodingKeys: String, CodingKey { case type; case jsonSchema = "json_schema" }
     init(schema: String) throws {
-        guard let value = try? JSONDecoder().decode(JSONValue.self, from: Data(schema.utf8)), case .object = value else {
+        guard let value = try? JSONDecoder().decode(AIJSONValue.self, from: Data(schema.utf8)), case .object = value else {
             throw AIRequestError.parameters
         }
         jsonSchema = Schema(schema: value)
-    }
-}
-
-private nonisolated enum JSONValue: Codable {
-    case object([String: JSONValue]), array([JSONValue]), string(String), number(Double), bool(Bool), null
-    init(from decoder: any Decoder) throws {
-        let c = try decoder.singleValueContainer()
-        if c.decodeNil() { self = .null }
-        else if let v = try? c.decode(Bool.self) { self = .bool(v) }
-        else if let v = try? c.decode(String.self) { self = .string(v) }
-        else if let v = try? c.decode(Double.self) { self = .number(v) }
-        else if let v = try? c.decode([String: JSONValue].self) { self = .object(v) }
-        else { self = .array(try c.decode([JSONValue].self)) }
-    }
-    func encode(to encoder: any Encoder) throws {
-        var c = encoder.singleValueContainer()
-        switch self {
-        case .object(let v): try c.encode(v)
-        case .array(let v): try c.encode(v)
-        case .string(let v): try c.encode(v)
-        case .number(let v): try c.encode(v)
-        case .bool(let v): try c.encode(v)
-        case .null: try c.encodeNil()
-        }
     }
 }
 

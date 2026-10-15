@@ -1,43 +1,25 @@
 import Foundation
 
-nonisolated struct ChatCompletionsStream {
-    private var buffer = Data()
+nonisolated struct ChatCompletionsStream: AIResponseStream {
+    private var framing = ServerSentEvents()
     private var text = ""
     private var finished = false
     private var done = false
     private var identifier: String?
-    private var lines: [String] = []
     var hasTerminated: Bool { done }
 
     mutating func append(_ data: Data) throws -> Bool {
-        buffer.append(data)
         var progressed = false
-        while let end = buffer.firstIndex(where: { $0 == 10 || $0 == 13 }) {
-            let next = buffer.index(after: end)
-            if buffer[end] == 13, next == buffer.endIndex { break }
-            let after = buffer[end] == 13 && buffer[next] == 10 ? buffer.index(after: next) : next
-            guard let line = String(data: buffer[..<end], encoding: .utf8) else { throw AIRequestError.invalidResponse }
-            buffer.removeSubrange(..<after)
-            if line.isEmpty {
-                progressed = try consume(lines.joined(separator: "\n")) || progressed
-                lines.removeAll(keepingCapacity: true)
-            } else { lines.append(line) }
-        }
+        for event in try framing.append(data) { progressed = try consume(event.data) || progressed }
         return progressed
     }
     mutating func finish() throws -> String {
-        if buffer == Data([13]) {
-            _ = try consume(lines.joined(separator: "\n")); lines.removeAll(); buffer.removeAll()
-        }
-        guard buffer.allSatisfy({ [9, 10, 13, 32].contains($0) }), lines.isEmpty, done, finished,
+        for event in try framing.finish() { _ = try consume(event.data) }
+        guard done, finished,
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AIRequestError.incomplete }
         return text
     }
-    private mutating func consume(_ event: String) throws -> Bool {
-        let payload = event.components(separatedBy: "\n").filter { $0.hasPrefix("data:") }.map {
-            var line = String($0.dropFirst(5)); if line.hasPrefix(" ") { line.removeFirst() }
-            if line.hasSuffix("\r") { line.removeLast() }; return line
-        }.joined(separator: "\n")
+    private mutating func consume(_ payload: String) throws -> Bool {
         if payload.isEmpty { return false }
         guard !done else { throw AIRequestError.invalidResponse }
         if payload == "[DONE]" { guard finished else { throw AIRequestError.incomplete }; done = true; return true }

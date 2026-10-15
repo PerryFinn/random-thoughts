@@ -38,7 +38,7 @@ nonisolated enum AIRequestError: String, Error, Sendable {
         case .timeout: "请求已超时。原内容保留，可手动从头重试；服务方仍可能处理或计费。"
         case .cancelled: "已取消，原正文和来源保留；服务方仍可能处理或计费。"
         case .invalidResponse, .incomplete, .refusal: "结果不完整、被拒绝或不符合六章节要求。原正文和来源保留，可手动从头重试。"
-        case .unsupportedService: "此协议传输尚未接入，请显式选择已校验的 Chat Completions 配置。"
+        case .unsupportedService: "此协议暂不可用，请选择其他已校验的 AI 服务配置。"
         case .tokenizer: "本地 tokenizer 初始化或计数失败，未发送工作内容。原内容保留。"
         case .budget: "请求预算无法容纳固定指令、偏好和合法输入。原内容保留，请调整 C／O。"
         case .needsBatching: "当天完整输入超出直接生成预算。原内容保留，请调整预算或明确重选来源。"

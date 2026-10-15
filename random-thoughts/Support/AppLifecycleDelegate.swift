@@ -26,7 +26,7 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             storage: DailyReportDatabase(directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("com.perryfinn.random-thoughts/DailyReports", isDirectory: true)),
             aiCredentials: AIServiceCredentialCipher.bundled(),
-            aiAccess: ChatCompletionsAdapter(transport: .production()),
+            aiAccess: AIServiceClient(transport: .production()),
             reportTokenizer: OfflineReportTokenizer(), codexSourceAccess: CodexDataSourceReader(
                 homeDirectory: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment,
                 homebrewDirectories: [URL(fileURLWithPath: "/opt/homebrew/bin"), URL(fileURLWithPath: "/usr/local/bin")],
