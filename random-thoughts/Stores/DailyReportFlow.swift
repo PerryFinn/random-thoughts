@@ -107,6 +107,10 @@ final class DailyReportFlow {
     var activeGenerationDay: ReportDay? { generationStore.activeDay }
     var isGeneratingSelectedReport: Bool { activeGenerationDay == selectedDay }
     var generationStage: ReportGenerationStage { generationStore.stage }
+    var generationScale: ReportGenerationScale? { generationStore.scale }
+    var generationCompletedRequests: Int { generationStore.completedRequests }
+    var generationInFlightRequests: Int { generationStore.inFlightRequests }
+    var generationLayer: Int { generationStore.layer }
     var generationStartedAt: Date? { generationStore.startedAt }
     var generationError: AIRequestError? { generationStore.lastDay == selectedDay ? generationStore.error : nil }
     var generationRetryAt: Date? { generationStore.lastDay == selectedDay ? generationStore.retryAt : nil }
@@ -395,12 +399,24 @@ final class DailyReportFlow {
                 guard day == selectedDay, let input = generationContext() else { return }
                 guard pending.generationContext == input else { setConfirmation(.generate(day)); return }
                 startGeneration(input)
+            case .generationPlan(let day):
+                guard day == selectedDay else { generationStore.cancel(); return }
+                guard let input = generationContext() else {
+                    generationStore.cancel()
+                    generationStore.fail(aiServiceStore.currentGeneratable == nil ? .missingConfiguration : .missingInput, day: day)
+                    return
+                }
+                if pending.generationContext != input {
+                    generationStore.cancel()
+                    startGeneration(input, forceConfirmation: true)
+                } else { generationStore.approvePlan() }
             case .validationExit(let continuation):
                 aiServiceStore.cancelValidation()
                 completeSettingsContinuation(continuation)
             }
         case .cancelConfirmation:
             guard confirmation != nil else { return }
+            if case .generationPlan = confirmation?.kind { generationStore.cancel() }
             confirmation = nil
             sessionStore.cancelUnknown()
             quitTask?.cancel()
@@ -573,6 +589,7 @@ final class DailyReportFlow {
             requestGeneration()
         case .cancelGeneration:
             generationStore.cancel()
+            if case .generationPlan = confirmation?.kind { confirmation = nil }
             if let kind = confirmation?.kind { setConfirmation(kind) }
         case .showAICredential, .copyAICredential:
             guard isStorageReady, !isSaving, settingsPage == .aiServices, openWindows[.settings] != nil else { return }
@@ -618,6 +635,11 @@ final class DailyReportFlow {
     }
 
     private func requestGeneration() {
+        if generationStore.stage == .awaitingConfirmation, let input = generationStore.pendingContext, let scale = generationStore.scale {
+            confirmation = ReportConfirmation(kind: .generationPlan(input.snapshot.day), previousMarkdown: nil, markdown: nil,
+                draftDays: [], generationContext: input, generationScale: scale)
+            return
+        }
         guard !isSaving, activeGenerationDay == nil, openWindows[.report] != nil else { return }
         if let retryAt = generationRetryAt, retryAt > now() { return }
         guard let input = generationContext() else {
@@ -629,10 +651,17 @@ final class DailyReportFlow {
         } else { startGeneration(input) }
     }
 
-    private func startGeneration(_ input: ReportGenerationContext) {
+    private func startGeneration(_ input: ReportGenerationContext, forceConfirmation: Bool = false) {
         let session = openWindows[.report]
         let day = input.snapshot.day
-        generationStore.start(input) { result, failure in
+        generationStore.start(input, forceConfirmation: forceConfirmation, confirmation: { scale in
+            if let kind = self.confirmation?.kind {
+                self.setConfirmation(kind)
+                return
+            }
+            self.confirmation = ReportConfirmation(kind: .generationPlan(day), previousMarkdown: nil, markdown: nil,
+                draftDays: [], generationContext: input, generationScale: scale)
+        }) { result, failure in
             guard self.openWindows[.report] == session else { return }
             if let result {
                 self.drafts[day] = Draft(markdown: result.markdown, baseline: result.markdown, wasSaved: false,
@@ -725,6 +754,8 @@ final class DailyReportFlow {
             confirmation = hasAIServiceEdits ? nil : ReportConfirmation(kind: kind, previousMarkdown: nil, markdown: nil, draftDays: [])
         case .unknownSources:
             confirmation = ReportConfirmation(kind: kind, previousMarkdown: nil, markdown: nil, draftDays: [])
+        case .generationPlan:
+            if generationStore.pendingContext == nil { confirmation = nil }
         case .generate(let day):
             confirmation = ReportConfirmation(kind: kind, previousMarkdown: nil, markdown: body, draftDays: [day], generationContext: generationContext())
         case .validationExit(let continuation):

@@ -28,7 +28,7 @@ struct MessagesFlowTests {
             #expect(await environment.ai.requests.count == (fits ? 2 : 1))
             #expect(flow.body == original && flow.generationSources != nil && flow.savedAIService.hasMatchingValidation)
             #expect(flow.confirmedSnapshot?.sessions.first?.turns.first?.userText == "合成工作")
-            #expect(fits ? flow.generationError == nil : flow.generationError == .needsBatching)
+            #expect(fits ? flow.generationError == nil : flow.generationError == .budget)
         }
     }
 

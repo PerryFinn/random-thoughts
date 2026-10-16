@@ -30,7 +30,7 @@ struct ResponsesFlowTests {
             #expect(flow.body == original && flow.generationSources != nil)
             #expect(flow.confirmedSnapshot?.sessions.first?.turns.first?.userText == "合成工作")
             #expect(flow.savedAIService.hasMatchingValidation)
-            #expect(fits ? flow.generationError == nil : flow.generationError == .needsBatching)
+            #expect(fits ? flow.generationError == nil : flow.generationError == .budget)
         }
     }
 

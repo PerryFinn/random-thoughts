@@ -100,6 +100,7 @@ nonisolated struct ReportConfirmation: Identifiable, Sendable {
         case deleteAICredential(AIServiceType, version: Int64, revision: UInt64)
         case unknownSources
         case generate(ReportDay)
+        case generationPlan(ReportDay)
         case validationExit(ReportSettingsContinuation)
     }
 
@@ -114,6 +115,7 @@ nonisolated struct ReportConfirmation: Identifiable, Sendable {
     var oldTimeZoneIdentifier: String? = nil
     var newTimeZoneIdentifier: String? = nil
     var generationContext: ReportGenerationContext? = nil
+    var generationScale: ReportGenerationScale? = nil
     var isGenerating = false
 
     var windowKind: AppWindowKind {

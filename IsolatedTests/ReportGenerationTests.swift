@@ -128,13 +128,13 @@ struct ReportGenerationTests {
         #expect(flow.savedAIService.hasMatchingValidation)
     }
 
-    @Test func directBudgetFailureSendsNoWorkAndDoesNotDiscardAnyTurn() async throws {
+    @Test func oversizedInputWaitsForPlanConfirmationAndDoesNotDiscardAnyTurn() async throws {
         let environment = ReportFlowTestEnvironment()
         try await installSyntheticAI(environment, totalBudget: 5_000, outputLimit: 1_000)
         let flow = try await prepareSessionFlow(environment, sessions: [syntheticCandidate("large-28", user: String(repeating: "当天完整内容👩🏽‍💻", count: 2_000))])
         flow.send(.confirmSessionSelection); await flow.waitForSessionScan()
         flow.send(.generateReport); await flow.waitForGeneration()
-        #expect(flow.generationError == .needsBatching)
+        #expect(flow.generationError == nil && flow.confirmation?.generationScale?.requiresConfirmation == true)
         #expect(await environment.ai.requests.isEmpty)
         #expect(flow.confirmedSnapshot?.sessions[0].turns[0].userText.count == String(repeating: "当天完整内容👩🏽‍💻", count: 2_000).count)
     }

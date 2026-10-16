@@ -15,8 +15,10 @@ nonisolated struct ChatCompletionsAdapter: AIServiceAccess {
         guard case .chatCompletions(let defaults) = request.configuration.defaults,
               let url = URL(string: request.configuration.endpoint) else { throw AIRequestError.parameters }
         let format = try request.schema.map { try ChatResponseFormat(schema: $0) }
+        let input: AIJSONValue = request.additionalInputs.isEmpty ? .string(request.input) : .array(
+            ([request.input] + request.additionalInputs).map { .object(["type": .string("text"), "text": .string($0)]) })
         let body = ChatRequest(model: request.configuration.model,
-                               messages: [.init(role: "system", content: request.instruction), .init(role: "user", content: request.input)],
+                               messages: [.init(role: "system", content: .string(request.instruction)), .init(role: "user", content: input)],
                                temperature: defaults.temperature, reasoningEffort: defaults.reasoningEffort?.rawValue,
                                maxCompletionTokens: request.configuration.outputLimit, store: false,
                                stream: request.streaming, responseFormat: format)
@@ -29,9 +31,13 @@ nonisolated struct ChatCompletionsAdapter: AIServiceAccess {
         do { data = try await transport.send(http, stream: request.streaming ? ChatCompletionsStream() : nil, service: .chatCompletions) }
         catch {
             let reason = AIRequestError.reason(for: error)
-            if case .composeReport = request.intent, [.streamingUnsupported, .structuredUnsupported].contains(reason) {
-                throw AIRequestError.parameters
+            let expected: AIRequestError?
+            switch request.intent {
+            case .probe(.streaming): expected = .streamingUnsupported
+            case .probe(.structured): expected = .structuredUnsupported
+            default: expected = nil
             }
+            if [.streamingUnsupported, .structuredUnsupported].contains(reason), reason != expected { throw AIRequestError.parameters }
             throw error
         }
         if request.streaming { return try ChatCompletion.parseStream(data) }
@@ -40,7 +46,7 @@ nonisolated struct ChatCompletionsAdapter: AIServiceAccess {
 }
 
 private nonisolated struct ChatRequest: Encodable {
-    struct Message: Encodable { let role: String; let content: String }
+    struct Message: Encodable { let role: String; let content: AIJSONValue }
     let model: String
     let messages: [Message]
     let temperature: Double?

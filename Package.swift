@@ -40,6 +40,8 @@ let package = Package(
                 "Services/AIServiceClient.swift",
                 "Services/MessagesAdapter.swift", "Services/MessagesStream.swift",
                 "Models/ReportPayload.swift",
+                "Models/ReportFactPayload.swift", "Services/ReportRequestBudget.swift", "Services/ReportBatchPlan.swift",
+                "Services/ReportBatchExecutor.swift",
                 "Services/OfflineReportTokenizer.swift",
                 "Views/DailyReportGenerationStatusView.swift", "Models/ReportGeneration.swift", "Services/ReportInputPlanner.swift", "Stores/ReportGenerationStore.swift",
                 "Views/DailyReportAIServiceView.swift", "Views/AIServiceDefaultsEditor.swift",

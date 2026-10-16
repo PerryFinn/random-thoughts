@@ -8,14 +8,19 @@ struct DailyReportGenerationStatusView: View {
                 HStack {
                     ProgressView().controlSize(.small)
                     Text("\(day.calendarDate) · \(flow.generationStage.title)")
-                    Text(flow.generationStage == .planning ? "计划 1 次请求 · 尚未发送" : "计划 1 次 · 完成 0 · 在途 1")
-                        .font(.caption).foregroundStyle(.secondary)
+                    VStack(alignment: .leading) {
+                        Text(flow.generationScale?.description ?? "正在计算有限计划 · 尚未发送")
+                        Text("归并层 \(flow.generationLayer) · 完成 \(flow.generationCompletedRequests) · 在途 \(flow.generationInFlightRequests)")
+                    }.font(.caption).foregroundStyle(.secondary)
                     if let started = flow.generationStartedAt {
                         TimelineView(.periodic(from: started, by: 1)) { context in
                             Text("\(max(0, Int(context.date.timeIntervalSince(started)))) 秒").font(.caption)
                         }
                     }
                     Spacer()
+                    if flow.generationStage == .awaitingConfirmation {
+                        Button("查看计划") { flow.send(.generateReport) }.pointerStyle(.link)
+                    }
                     Button("取消生成") { flow.send(.cancelGeneration) }.pointerStyle(.link)
                 }
             }

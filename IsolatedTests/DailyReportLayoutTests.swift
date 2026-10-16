@@ -6,6 +6,26 @@ import Testing
 
 @MainActor
 struct DailyReportLayoutTests {
+    @Test func batchPlanAndLiveProgressFitTheMinimumReportWithoutAWindow() async throws {
+        let environment = ReportFlowTestEnvironment(), access = BatchAIService(holds: true)
+        environment.aiAccess = access
+        try await installSyntheticAI(environment, totalBudget: 12_000, outputLimit: 3_000)
+        let flow = try await prepareSessionFlow(environment, sessions: [syntheticCandidate("layout-31", user: String(repeating: " evidence", count: 40_000))])
+        flow.send(.confirmSessionSelection); await flow.waitForSessionScan()
+        flow.send(.generateReport); await flow.waitForGeneration()
+        let confirmation = try #require(flow.confirmation)
+        let sheet = NSHostingView(rootView: ReportConfirmationView(flow: flow, confirmation: confirmation).frame(width: 600, height: 300))
+        #expect(sheet.fittingSize == NSSize(width: 600, height: 300) && sheet.window == nil)
+        for running in [false, true] {
+            if running { flow.send(.confirm(confirmation.id)); await access.waitForRequests(3) }
+            let status = NSHostingView(rootView: DailyReportGenerationStatusView(flow: flow).frame(width: 860))
+            #expect(status.fittingSize.width == 860 && status.fittingSize.height <= 160 && status.window == nil)
+            let report = NSHostingView(rootView: DailyReportView(flow: flow).frame(width: 900, height: 620))
+            #expect(report.fittingSize == NSSize(width: 900, height: 620) && report.window == nil)
+        }
+        flow.send(.cancelGeneration); await flow.waitForGeneration()
+    }
+
     @Test func allNativeAIEditorsAndCredentialConfirmationFitWithoutAWindow() async throws {
         let environment = ReportFlowTestEnvironment()
         let flow = try await prepareAISettings(environment)

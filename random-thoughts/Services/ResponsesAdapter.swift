@@ -14,7 +14,11 @@ nonisolated struct ResponsesAdapter: AIServiceAccess {
         guard request.configuration.service == .responses else { throw AIRequestError.unsupportedService }
         guard case .responses(let defaults) = request.configuration.defaults,
               let url = URL(string: request.configuration.endpoint) else { throw AIRequestError.parameters }
-        let body = ResponsesRequest(model: request.configuration.model, instructions: request.instruction, input: request.input,
+        let input: AIJSONValue = request.additionalInputs.isEmpty ? .string(request.input) : .array([
+            .object(["role": .string("user"), "content": .array(([request.input] + request.additionalInputs).map {
+                .object(["type": .string("input_text"), "text": .string($0)])
+            })])])
+        let body = ResponsesRequest(model: request.configuration.model, instructions: request.instruction, input: input,
             temperature: defaults.temperature, reasoning: defaults.reasoningEffort.map { .init(effort: $0.rawValue) },
             maxOutputTokens: request.configuration.outputLimit, store: false, truncation: "disabled", stream: request.streaming,
             text: try request.schema.map { try ResponsesText(schema: $0) })
@@ -49,7 +53,7 @@ private nonisolated struct ResponsesRequest: Encodable {
     struct Reasoning: Encodable { let effort: String }
     let model: String
     let instructions: String
-    let input: String
+    let input: AIJSONValue
     let temperature: Double?
     let reasoning: Reasoning?
     let maxOutputTokens: Int

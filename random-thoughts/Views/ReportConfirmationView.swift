@@ -84,6 +84,7 @@ struct ReportConfirmationView: View {
         case .deleteAICredential: "删除已保存 AI 服务凭据"
         case .unknownSources: "纳入未知来源会话"
         case .generate: "替换手写或已编辑草稿"
+        case .generationPlan: "确认完整生成计划"
         case .validationExit: "离开前检查正在进行的配置校验"
         }
     }
@@ -103,6 +104,7 @@ struct ReportConfirmationView: View {
         case .deleteAICredential: "确认删除凭据"
         case .unknownSources: "仅本次纳入"
         case .generate: "确认替换并生成"
+        case .generationPlan: "确认计划并生成"
         case .validationExit: "取消测试并离开"
         }
     }
@@ -121,6 +123,8 @@ struct ReportConfirmationView: View {
             "仅删除此协议的已保存凭据并使旧校验资格失效；保留端点、模型、默认值、预算及当前身份。此操作不会撤销服务方凭据，也不会清除剪贴板。"
         case .unknownSources:
             "这些会话的来源尚未识别，可能包含后台任务或其他噪声。确认仅纳入当前报告日的本次选择；刷新后须重新选择，不形成长期信任。"
+        case .generationPlan:
+            (confirmation.generationScale?.description ?? "") + "。确认后执行整个有限计划；实际摘要更短可减少步骤。失败或取消保留原正文与来源。输入、配置或设置变化须重新规划和确认。"
         case .generate:
             "完整合格结果才替换当前草稿及来源；失败或取消保留原内容。配置、来源或设置变化须重新确认。"
         case .validationExit:

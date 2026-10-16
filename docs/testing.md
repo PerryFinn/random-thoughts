@@ -1,6 +1,6 @@
 # 构建与隔离测试
 
-本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#30](https://github.com/PerryFinn/random-thoughts/issues/30) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)，#29 的原生 output／SSE、配置与共享流程边界见 [responses-generation.md](responses-generation.md)，#30 的原生 Messages 内容块／thinking／SSE 边界见 [messages-generation.md](messages-generation.md)。
+本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#31](https://github.com/PerryFinn/random-thoughts/issues/31) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)，#29 的原生 output／SSE、配置与共享流程边界见 [responses-generation.md](responses-generation.md)，#30 的原生 Messages 内容块／thinking／SSE 边界见 [messages-generation.md](messages-generation.md)，#31 的完整输入、规模确认和受控并发见 [long-input-generation.md](long-input-generation.md)。
 
 ## 命令
 
@@ -401,3 +401,30 @@ code-review 固定起点为 `06da0cf044876ddadb0c0e8879188d3be128770b`，两个�
 清除了 Messages 的未接入校验拦截及占位文案；schema 预算入口改为接收实际配置，所有调用方同步更新。未删除文件、数据库或用户数据，未增加迁移、兼容分支、预算调度副本或生成档案。执行期间工程文件出现仅键顺序调整的外部改动，保留并排除在本票提交之外。
 
 未执行：应用启动、旧宿主／UI 测试、实际窗口／键盘／焦点／剪贴板／睡眠唤醒交互、截图、macOS 26.5／Intel 运行、真实 Codex／AI、真实端点兼容性／语义／性能验收、系统日志落盘。完整分批由 #31 承接，真实组合证据由 #36 承接，授权系统／语义验收由 #35 承接；#20 整体验收未完成。本次不推送、不关闭 Issue。
+
+## #31 完整长输入与有限分批验证记录
+
+2026-10-16，仅基于本地 `2df5a96009c67f4727d71907225d6b81ec3bb56d` 实现 #31。先读根 AGENTS、#31、父 #20 全文与评论、CONTEXT 及全部相关 ADR，核对本地 #28／#29／#30 的实际代码；只读核对远端 main 为 `123948d`，#31 的原生阻塞项仍为开放的 #28。本地实现不解除远端阻塞，不推送、不关闭 Issue。起始工程文件已有两处键顺序调整，保留并排除在本票暂存范围之外。
+
+先更新输入、计划与交付文档，再从统一流程的超预算失败回归开始逐步实现。超长单轮保全字符、执行接入、真实进度、会话边界优先、归并不能清空必要上游事实、等待确认期间脱敏失败可见，以及大量无相关内容的小轮次不携带无用整轮清单，均亲检失败输出后修复。没有复制业务实现或另建协议路径。
+
+| 实际命令 | 结果 |
+| --- | --- |
+| `rtk proxy ./script/test-isolated.sh --filter 'ReportBatch|ReportGenerationTests|ResponsesFlowTests|MessagesFlowTests'` | 7 个套件、41 项通过，含并发 1／3／8、8 种坏中间结果、必要失败／取消及三种原生协议参数用例。 |
+| `rtk proxy ./script/test-isolated.sh --filter DailyReportLayoutTests.batchPlan` | 1 项通过：最小 600×300pt 计划面板、860pt 进度区、900×620pt 日报均通过无 NSWindow 的原生内容测量。 |
+| `rtk proxy ./script/build.sh` | `BUILD SUCCEEDED`，生产 arm64 Debug 纯构建；无新增 Swift 编译警告，只有既有 AppIntents 元数据跳过提示。 |
+| `rtk proxy ./script/test-isolated.sh` | 评审前 47 个套件、226 项通过；评审修复后的最终全套为 47 个套件、227 项通过，包含三协议与沙盒拒绝能力回归。 |
+| `rtk proxy git diff --cached --check` | 通过；暂存范围仅本票文件，不含工程文件无关变化。 |
+
+- `ReportBatchGenerationTests`：实际离线 tokenizer 规划完整当天输入；完整会话优先，超长单轮按扩展字素簇拆分并核对全部 UTF-8 字节、助手最终回复、角色／时区／日期／序号／结果状态；部分轮次不能确认完成。有限多层及最坏可见预算、实际已能成文立即停层、无缩减／结构／引用／覆盖／预算失败终止；4／5 次及 4–5 次范围在首笔请求前确认，确认变更重算；依赖屏障、乱序稳定、并发边界、整体失败／取消和旧正文保护。
+- `ReportBatchContextTests`：提取只用对应会话背景、归并不重复背景、成文只用同区已保存历史；完整辅助单元超预算跳过并继续，实际序列化仍受 20% 上限，来源日期只记录实际使用者。运行中 C／O／并发／语言／偏好／回看和历史正文变化不改任何后续批次；O 变化使新生成待复验，既有任务仍用原 O。等待确认时遮盖失败提示可见且取消不发送。
+- `ReportBatchWireTests`：同一请求经过三个真实原生 Adapter 和受控传输，独立摘要块保持顺序及全部文本，每种协议保留自身鉴权／O／必要控制和 schema 编码。没有真实端点访问。
+- `ReportBatchPrivacyTests`：统一流程接入真实 SQLite／CryptoKit／离线 tokenizer／CocoaLumberjack 与受控 AI、Codex Adapter；原文、Key、临时来源与中间事实不进入磁盘或日志，中间事实不进入六章草稿／剪贴板，显式保存并重开只恢复允许的正文与设置。分批且未裁剪不标降级，真实辅助裁剪才记当次已知损失。
+
+清理了旧 `needsBatching` 停止错误／提示、直接规划中的重复遮盖与辅助预算实现、仅用于旧入口的转发方法、硬编码单请求进度及无用偏好存储副本；所有调用方同步更新。没有删除完整源文件、数据库或用户数据，没有迁移、兼容分支、自动重试、逐条证据档案或恢复副本。
+
+未执行：生产应用启动、旧宿主／UI 测试、真实窗口／键盘／焦点／剪贴板／睡眠唤醒交互、截图、macOS 26.5／Intel 运行、真实 Codex／AI、真实端点语义／性能／三协议组合及系统日志落盘。#34／#36 承接三协议汇合与组合证据，#35 承接获授权后的真实系统／语义验收；本票结果不代表 #20 整体验收完成。
+
+code-review 固定起点为 `2df5a96009c67f4727d71907225d6b81ec3bb56d`，两个独立代理分别评审本票暂存差异，不包含此前 17 个未推送提交及工程文件无关变化。Standards 初审为 0 项硬性违反、1 项 P3 可行动气味：两个未使用入口；删除后复核为 0 项未解决。Spec 初审发现 1 项 P2：离线规划完成的规模确认会覆盖已打开的关闭／退出保护面板。文档先补契约，统一流程的关闭／退出两参数回归均先失败，再将回调改为保留并刷新原面板；旧确认失效、返回编辑保留计划、重新查看并确认才外发均覆盖。Spec 复核为 0 项未解决缺失、实现错误或范围扩张。
+
+评审修复后的 `rtk proxy ./script/test-isolated.sh --filter 'ReportBatchContextTests|ReportGenerationTests|DailyReportWindowTests'` 为 3 个套件、21 项通过。随后完整隔离入口 47 个套件、227 项通过，生产纯构建再次 `BUILD SUCCEEDED`，只保留既有 AppIntents 工具提示；暂存空白检查通过。Standards 对最终生命周期增量再次复核，仍为 0 项硬性违反、0 项未解决可行动气味。结束前只读核对远端 main 仍为 `123948d`，#31／#28 仍开放，原生阻塞关系未变。

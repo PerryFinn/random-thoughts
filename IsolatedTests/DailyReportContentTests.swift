@@ -332,6 +332,8 @@ final class ReportFlowTestEnvironment {
     let codex = ControlledCodexSource()
     let credentials = ControlledCredentials()
     let ai = ControlledAIService()
+    var aiAccess: (any AIServiceAccess)?
+    var generationEvents: [ReportGenerationEvent] = []
     var now = Date(timeIntervalSince1970: 1_000)
     var effects: [AppWindowEffect] = []
     var copies: [String] = []
@@ -347,7 +349,7 @@ final class ReportFlowTestEnvironment {
         DailyReportFlow(
             storage: storage,
             aiCredentials: credentials,
-            aiAccess: self.ai, reportTokenizer: self.tokenizer, codexSourceAccess: codex,
+            aiAccess: self.aiAccess ?? self.ai, reportTokenizer: self.tokenizer, codexSourceAccess: codex,
             now: { self.now },
             timeZone: timeZone,
             performWindowEffect: { self.effects.append($0) },
@@ -356,7 +358,7 @@ final class ReportFlowTestEnvironment {
             recordCodexCheck: { self.codexEvents.append($0) },
             recordSessionScan: { self.scanEvents.append($0) },
             recordAIStorage: { self.aiStorageEvents.append($0) },
-            recordAIValidation: { self.aiValidationEvents.append($0) }, recordGeneration: { _ in }, redactCredentials: self.redact,
+            recordAIValidation: { self.aiValidationEvents.append($0) }, recordGeneration: { self.generationEvents.append($0) }, redactCredentials: self.redact,
             copyText: { self.copies.append($0) }
         )
     }

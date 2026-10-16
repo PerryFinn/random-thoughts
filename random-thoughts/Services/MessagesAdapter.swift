@@ -16,8 +16,10 @@ nonisolated struct MessagesAdapter: AIServiceAccess {
         guard request.configuration.service == .messages else { throw AIRequestError.unsupportedService }
         guard request.configuration.inputError == nil, case .messages(let defaults) = request.configuration.defaults,
               let url = URL(string: request.configuration.endpoint), url.host != nil else { throw AIRequestError.parameters }
+        let input: AIJSONValue = request.additionalInputs.isEmpty ? .string(request.input) : .array(
+            ([request.input] + request.additionalInputs).map { .object(["type": .string("text"), "text": .string($0)]) })
         let body = MessagesRequest(model: request.configuration.model, system: request.instruction,
-            messages: [.init(role: "user", content: request.input)], maxTokens: request.configuration.outputLimit,
+            messages: [.init(role: "user", content: input)], maxTokens: request.configuration.outputLimit,
             temperature: defaults.temperature, thinking: defaults.thinking == .endpointDefault ? nil : .init(type: defaults.thinking.rawValue),
             outputConfig: request.schema == nil && defaults.effort == nil ? nil : try MessagesOutputConfig(defaults: defaults, schema: request.schema),
             stream: request.streaming)
@@ -50,7 +52,7 @@ nonisolated struct MessagesAdapter: AIServiceAccess {
 }
 
 private nonisolated struct MessagesRequest: Encodable {
-    struct Message: Encodable { let role: String; let content: String }
+    struct Message: Encodable { let role: String; let content: AIJSONValue }
     struct Thinking: Encodable { let type: String }
     let model: String
     let system: String
