@@ -108,6 +108,7 @@ final class ReportGenerationStore {
             case .direct(let plan):
                 stage = .composing; redactionFailed = plan.redactionFailed; inFlightRequests = 1
                 emit(.init(kind: .stageChanged, stage: stage, result: .running, inputTokens: plan.estimatedTokens, error: nil))
+                try Task.checkCancellation()
                 payload = try await access.execute(AIRequest(intent: .composeReport, configuration: context.service.configuration,
                     credential: pending.credential, instruction: plan.instruction, input: plan.input, schema: plan.schema,
                     streaming: context.service.validation.streaming == .supported))

@@ -49,40 +49,49 @@ nonisolated final class AIHTTPTransport: Sendable {
             exchange.start(request)
             var data = Data(), response: HTTPURLResponse?, responseAt = started
             var parser = stream
-            for try await event in exchange.events {
-                try Task.checkCancellation()
-                let receivedAt = await time.now()
-                guard receivedAt < deadline else { throw AIRequestError.timeout }
-                switch event {
-                case .response(let value):
-                    response = value
-                    responseAt = receivedAt
-                    watchdog.cancel()
-                    deadline = streaming ? receivedAt.addingTimeInterval(90) : started.addingTimeInterval(300)
-                    watchdog = timer(until: deadline)
-                case .data(let chunk):
-                    data.append(chunk)
-                    if let response, (200..<300).contains(response.statusCode), try parser?.append(chunk) == true {
+            do {
+                for try await event in exchange.events {
+                    try Task.checkCancellation()
+                    let receivedAt = await time.now()
+                    guard receivedAt < deadline else { throw AIRequestError.timeout }
+                    switch event {
+                    case .response(let value):
+                        response = value
+                        responseAt = receivedAt
                         watchdog.cancel()
-                        deadline = receivedAt.addingTimeInterval(90)
+                        deadline = streaming ? receivedAt.addingTimeInterval(90) : started.addingTimeInterval(300)
                         watchdog = timer(until: deadline)
-                    }
-                    if parser?.hasTerminated == true {
-                        _ = try parser?.finish()
-                        return data
+                    case .data(let chunk):
+                        data.append(chunk)
+                        if let response, (200..<300).contains(response.statusCode), try parser?.append(chunk) == true {
+                            watchdog.cancel()
+                            deadline = receivedAt.addingTimeInterval(90)
+                            watchdog = timer(until: deadline)
+                        }
+                        if parser?.hasTerminated == true {
+                            _ = try parser?.finish()
+                            return data
+                        }
                     }
                 }
+                try Task.checkCancellation()
+                guard await time.now() < deadline else { throw AIRequestError.timeout }
+                guard let response else { throw AIRequestError.invalidResponse }
+                guard (200..<300).contains(response.statusCode) else {
+                    let reason = Self.failure(status: response.statusCode, data: data, service: service)
+                    let retryAt = reason == .rateLimit ? Self.retryDate(response.value(forHTTPHeaderField: "Retry-After"), now: responseAt) : nil
+                    throw AIRequestFailure(reason: reason, retryAt: retryAt)
+                }
+                if !streaming, let value = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                   value["error"] is [String: Any] {
+                    throw Self.failure(status: response.statusCode, data: data, service: service)
+                }
+                _ = try parser?.finish()
+                return data
+            } catch AIRequestError.rateLimit {
+                guard let response else { throw AIRequestError.rateLimit }
+                throw AIRequestFailure(reason: .rateLimit, retryAt: Self.retryDate(response.value(forHTTPHeaderField: "Retry-After"), now: responseAt))
             }
-            try Task.checkCancellation()
-            guard await time.now() < deadline else { throw AIRequestError.timeout }
-            guard let response else { throw AIRequestError.invalidResponse }
-            guard (200..<300).contains(response.statusCode) else {
-                let reason = Self.failure(status: response.statusCode, data: data, service: service)
-                let retryAt = reason == .rateLimit ? Self.retryDate(response.value(forHTTPHeaderField: "Retry-After"), now: responseAt) : nil
-                throw AIRequestFailure(reason: reason, retryAt: retryAt)
-            }
-            _ = try parser?.finish()
-            return data
         } onCancel: { exchange.cancel(.cancelled) }
     }
 
@@ -105,7 +114,12 @@ nonisolated final class AIHTTPTransport: Sendable {
             || message.hasPrefix(#"To turn thinking off on this model, send "thinking": {"type": "between_tools"} instead of {"type": "disabled"}."#)
             || (message.hasPrefix("output_config.effort ") && message.contains(" is not supported ")) { return .parameters }
         let fields = ["anthropic-version", "max_tokens", "temperature", "thinking", "output_config", "output_config.effort", "output_config.format", "stream"]
-        if fields.contains(where: { message.hasPrefix($0 + ":") }) { return .parameters }
+        let rejections = ["unsupported version", "Invalid discriminator", "Invalid effort", "Invalid JSON schema",
+                          "Input should be ", "Extra inputs are not permitted", "Field required"]
+        for field in fields where message.hasPrefix(field + ":") {
+            let detail = message.dropFirst(field.count + 1).trimmingCharacters(in: .whitespaces)
+            if rejections.contains(where: detail.hasPrefix) { return .parameters }
+        }
         return nil
     }
     static func failure(status: Int, code: String?, parameter: String?, service: AIServiceType) -> AIRequestError {

@@ -57,8 +57,10 @@ nonisolated struct ReportBatchExecutor: Sendable {
                     evidence: { _, history in try plan.input(upstream: ids, history: history) })
                 clipped = clipped || auxiliary.clipped
                 await progress(.init(stage: .composing, layer: layer, completed: completed, inFlight: 1))
+                try Task.checkCancellation()
                 let payload = try await access.execute(request(intent: .composeReport, instruction: plan.prepared.batchFinalInstruction,
                     input: auxiliary.input, schema: plan.finalSchema, blocks: blocks))
+                try Task.checkCancellation()
                 completed += 1
                 await progress(.init(stage: .composing, layer: layer, completed: completed, inFlight: 0))
                 return .init(payload: payload, sources: plan.prepared.sources(historyDays: auxiliary.historyDays),
@@ -97,6 +99,7 @@ nonisolated struct ReportBatchExecutor: Sendable {
                 let step = steps[dispatched]
                 dispatched += 1; inFlight += 1
                 await progress(.init(stage: layer == 0 ? .extracting : .merging, layer: layer, completed: completed, inFlight: inFlight))
+                try Task.checkCancellation()
                 group.addTask { try await execute(step, upstream: upstream) }
             }
             do {
@@ -124,6 +127,7 @@ nonisolated struct ReportBatchExecutor: Sendable {
         }
         let blocks = parents.map(\.block)
         guard try await plan.factBudget.count(step.input, blocks: blocks) <= plan.factBudget.limit else { throw AIRequestError.budget }
+        try Task.checkCancellation()
         let payload = try await access.execute(request(intent: step.fragments.isEmpty ? .mergeFacts : .extractFacts,
             instruction: plan.factInstruction, input: step.input, schema: plan.factSchema, blocks: blocks))
         try Task.checkCancellation()

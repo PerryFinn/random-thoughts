@@ -10,9 +10,14 @@ actor BatchAIService: AIServiceAccess {
     private(set) var cancelled = 0
     private let mode: Mode
     private var holds: Bool
+    private var heldStage: ReportGenerationStage?
+    private let ignoresCancellation: Bool
     private var pending: [Int: CheckedContinuation<String, any Error>] = [:]
     private var observers: [(Int, CheckedContinuation<Void, Never>)] = []
-    init(mode: Mode = .compact, holds: Bool = false) { self.mode = mode; self.holds = holds }
+    init(mode: Mode = .compact, holds: Bool = false, ignoresCancellation: Bool = false) {
+        self.mode = mode; self.holds = holds; self.ignoresCancellation = ignoresCancellation
+    }
+    func hold(stage: ReportGenerationStage) { holds = true; heldStage = stage }
     func waitForRequests(_ count: Int) async {
         if requests.count < count { await withCheckedContinuation { observers.append((count, $0)) } }
     }
@@ -29,6 +34,7 @@ actor BatchAIService: AIServiceAccess {
         for index in pending.keys.sorted() { release(index) }
     }
     private func cancel(_ index: Int) {
+        if ignoresCancellation { return }
         guard let continuation = pending.removeValue(forKey: index) else { return }
         cancelled += 1; continuation.resume(throwing: CancellationError())
     }
@@ -40,10 +46,16 @@ actor BatchAIService: AIServiceAccess {
     func execute(_ request: AIRequest) async throws -> String {
         let index = requests.count
         requests.append(request)
-        if holds {
+        let stage: ReportGenerationStage? = switch request.intent {
+        case .extractFacts: .extracting
+        case .mergeFacts: .merging
+        case .composeReport: .composing
+        case .probe: nil
+        }
+        if holds, let stage, heldStage == nil || heldStage == stage {
             return try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
-                    if Task.isCancelled { continuation.resume(throwing: CancellationError()) }
+                    if Task.isCancelled && !ignoresCancellation { continuation.resume(throwing: CancellationError()) }
                     else { pending[index] = continuation }
                     notify()
                 }
@@ -56,7 +68,7 @@ actor BatchAIService: AIServiceAccess {
         switch request.intent {
         case .composeReport:
             return mode == .noRelevant ? #"{"overview":"","completed":"","deliverables":"","decisions":"","risks":"","plans":""}"# : syntheticReportPayload
-        case .probe: throw AIRequestError.parameters
+        case .probe(let stage): return stage == .structured ? #"{"ok":"OK"}"# : "OK"
         case .extractFacts, .mergeFacts:
             let input = try JSONSerialization.jsonObject(with: Data(request.input.utf8)) as! [String: Any]
             let fragments = input["fragments"] as? [[String: Any]] ?? []

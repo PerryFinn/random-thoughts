@@ -1,6 +1,6 @@
 # 构建与隔离测试
 
-本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#31](https://github.com/PerryFinn/random-thoughts/issues/31) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)，#29 的原生 output／SSE、配置与共享流程边界见 [responses-generation.md](responses-generation.md)，#30 的原生 Messages 内容块／thinking／SSE 边界见 [messages-generation.md](messages-generation.md)，#31 的完整输入、规模确认和受控并发见 [long-input-generation.md](long-input-generation.md)。
+本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#32](https://github.com/PerryFinn/random-thoughts/issues/32) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)，#29 的原生 output／SSE、配置与共享流程边界见 [responses-generation.md](responses-generation.md)，#30 的原生 Messages 内容块／thinking／SSE 边界见 [messages-generation.md](messages-generation.md)，#31 的完整输入、规模确认和受控并发见 [long-input-generation.md](long-input-generation.md)，#32 的配置竞争、取消、错误与手动重试见 [generation-lifecycle.md](generation-lifecycle.md)。
 
 ## 命令
 
@@ -428,3 +428,26 @@ code-review 固定起点为 `06da0cf044876ddadb0c0e8879188d3be128770b`，两个�
 code-review 固定起点为 `2df5a96009c67f4727d71907225d6b81ec3bb56d`，两个独立代理分别评审本票暂存差异，不包含此前 17 个未推送提交及工程文件无关变化。Standards 初审为 0 项硬性违反、1 项 P3 可行动气味：两个未使用入口；删除后复核为 0 项未解决。Spec 初审发现 1 项 P2：离线规划完成的规模确认会覆盖已打开的关闭／退出保护面板。文档先补契约，统一流程的关闭／退出两参数回归均先失败，再将回调改为保留并刷新原面板；旧确认失效、返回编辑保留计划、重新查看并确认才外发均覆盖。Spec 复核为 0 项未解决缺失、实现错误或范围扩张。
 
 评审修复后的 `rtk proxy ./script/test-isolated.sh --filter 'ReportBatchContextTests|ReportGenerationTests|DailyReportWindowTests'` 为 3 个套件、21 项通过。随后完整隔离入口 47 个套件、227 项通过，生产纯构建再次 `BUILD SUCCEEDED`，只保留既有 AppIntents 工具提示；暂存空白检查通过。Standards 对最终生命周期增量再次复核，仍为 0 项硬性违反、0 项未解决可行动气味。结束前只读核对远端 main 仍为 `123948d`，#31／#28 仍开放，原生阻塞关系未变。
+
+## #32 生成生命周期验证记录（2026-10-20）
+
+仅基于本地 `4db34140b5b229bf7d7daab0d7a995d91a13b91c` 处理 #32。先读 AGENTS、该票与父 #20 的完整正文／评论、CONTEXT 和相关 ADR，并核对本地 #28–#31 前置实现。只读核对远端 main 为 `123948d`，#32 仍被开放的 #31 阻塞，#31 仍被开放的 #28 阻塞。本地实现不解除远端阻塞。起始工程文件已有两处键顺序变化，保留并排除，SHA-256 与起始一致。
+
+先补 [生成生命周期契约](generation-lifecycle.md)，再在既有统一流程与真实传输边界补行为测试。亲检以下回归失败后完成最小修复：Messages 仅提及字段就被误判为参数拒绝；流内错误及 HTTP 200 非流式错误丢失限流分类或可靠等待时间；在成文进度回调中取消仍派发请求；网络、临时服务和未知错误共用模糊提示。删除宽泛字段前缀判定与合并提示，复用既有原生证据分类，补足计数／进度到派发之间的取消检查。
+
+| 实际命令 | 结果 |
+| --- | --- |
+| `rtk proxy ./script/test-isolated.sh --filter 'AIHTTPTests|MessagesErrorTests|ResponsesErrorTests|ChatCompletionsValidationTests'` | 4 个套件、32 项通过，含三协议限流及实际经过时间参数用例。 |
+| `rtk proxy ./script/test-isolated.sh` | 全套 49 个套件、243 项通过，无编译警告或测试失败。 |
+| `rtk proxy ./script/build.sh` | `BUILD SUCCEEDED`，生产 arm64 Debug 纯构建；无新增 Swift 编译警告，仅既有 AppIntents 元数据跳过提示。 |
+
+- `ReportGenerationConfigurationTests`：直接／提取／归并阶段的端点、模型、默认值、凭据替换／删除、当前切换共 18 组；保存失败保持旧配置和任务。O 变化后旧任务仍用旧 O，复验新 O 后旧基线的四种失败不能覆盖新资格。待确认计划遇到 C／O／并发／语言／偏好／回看、来源或实际历史变化，必须重新规划及确认，陈旧按钮不发送。
+- `ReportGenerationLifecycleTests`：三阶段与十类必要失败的 30 组组合保护完整原稿及来源，仅明确配置错误撤销匹配资格；忽略取消的适配器迟到成功／失败不能恢复旧结果。关闭／退出合并全部日期草稿并刷新确认，数据源改变保留固定快照，有效时区变化取消受影响范围；模拟整次经过一小时不设置全局短时限。可靠等待结束只开放手动重试，使用最新保存偏好／历史及已确认快照，不自动扫描或发请求。既有分批上下文测试继续覆盖运行中 C／O／并发／语言／偏好／回看固定。
+- `AIHTTPTests`：三协议真实回环 URLSession 对 HTTP 错误、原生非流式错误及流内错误保留可靠 `Retry-After`。受控时钟分别模拟连接 30 秒、非流式 300 秒、流式 90 秒已经经过，但计时器尚未恢复调度，迟到响应仍超时。既有心跳、有效进展、终止、重定向及真实传输取消回归继续通过。
+- `ReportBatchPrivacyTests`：实际临时 SQLite／CryptoKit／CocoaLumberjack 出口同时覆盖成功、必要失败和取消；原稿与整份来源原子保留，不写部分日报、恢复档案或中间事实。仅显式保存后的正文可在重开数据库后恢复；合成敏感标记不进入日志对象或禁止的磁盘出口。
+
+code-review 固定起点为 `4db34140b5b229bf7d7daab0d7a995d91a13b91c`，按先评审后提交的顺序，由两个独立代理检查本票 17 个暂存文件，排除既有未暂存工程文件。Standards 为 0 项硬性违反、0 项可行动气味；Spec 为 0 项缺失、实现错误或范围扩张。暂存空白检查通过。结束前再次只读核对远端 main 仍为 `123948d`，#32／#31／#28 仍开放，原生阻塞关系未变。
+
+未删除完整源文件、数据库或用户数据，没有迁移、兼容入口、自动重试、第二套协议或生成档案。仅清理上述错误判定／提示的旧分支，所有调用方继续使用同一流程与传输入口。
+
+未执行：应用启动、旧宿主／UI 测试、真实 Codex／AI、真实端点限流／兼容性／语义／性能、系统睡眠唤醒、原生窗口／焦点／键盘／剪贴板、截图、macOS 26.5／Intel 运行或系统日志落盘。内容删除的具体存储操作由 #33 承接，三协议汇合／组合和授权系统验收仍由 #34–#36 承接；这些隔离结果不代表父 #20 整体验收。本次不推送、不关闭 Issue。

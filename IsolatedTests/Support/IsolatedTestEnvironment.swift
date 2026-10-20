@@ -84,6 +84,8 @@ final class ControlledClock {
         ready.forEach { sleepers.removeValue(forKey: $0)?.1.resume() }
     }
 
+    func elapseWithoutScheduling(by seconds: TimeInterval) { now = now.addingTimeInterval(seconds) }
+
     func cancelAll() {
         let pending = sleepers.values.map(\.1)
         sleepers.removeAll()

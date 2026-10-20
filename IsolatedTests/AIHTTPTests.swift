@@ -5,6 +5,84 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct AIHTTPTests {
+    @Test(arguments: AIServiceType.allCases)
+    func nonstreamingErrorObjectsPreserveReliableWaitEvidence(_ service: AIServiceType) async throws {
+        let environment = try IsolatedTestEnvironment(); defer { environment.close() }
+        let server = try LoopbackChatServer(); defer { server.close() }
+        let time = AITransportTime(now: { await environment.clock.now }, sleep: { try await environment.clock.sleep(for: $0) })
+        let operation = Task { try await AIServiceClient(transport: .init(configuration: .ephemeral, time: time))
+            .execute(makeRequest(endpoint: server.endpoint, service: service)) }
+        _ = try await server.request()
+        var value: [String: Any] = service == .responses ? ResponsesFixture.response("", status: "failed") : [:]
+        value["error"] = service == .messages
+            ? ["type": "rate_limit_error", "message": "RAW_PRIVATE_ERROR_32"]
+            : ["code": "rate_limit_exceeded", "message": "RAW_PRIVATE_ERROR_32"]
+        try server.respond(JSONSerialization.data(withJSONObject: value), fields: ["Retry-After": "60"])
+        do { _ = try await operation.value; Issue.record("A nonstreaming rate limit was accepted") }
+        catch {
+            #expect(AIRequestError.reason(for: error) == .rateLimit)
+            #expect((error as? AIRequestFailure)?.retryAt == Date(timeIntervalSince1970: 1_060))
+        }
+    }
+
+    @Test(arguments: AIServiceType.allCases)
+    func inBandRateLimitsKeepReliableWaitEvidenceWithoutWaitingForSocketClosure(_ service: AIServiceType) async throws {
+        let environment = try IsolatedTestEnvironment(); defer { environment.close() }
+        let server = try LoopbackChatServer(); defer { server.close() }
+        let time = AITransportTime(now: { await environment.clock.now }, sleep: { try await environment.clock.sleep(for: $0) })
+        let base = makeRequest(endpoint: server.endpoint, service: service)
+        let request = AIRequest(intent: .composeReport, configuration: base.configuration, credential: base.credential,
+            instruction: base.instruction, input: base.input, schema: nil, streaming: true)
+        let operation = Task { try await AIServiceClient(transport: .init(configuration: .ephemeral, time: time)).execute(request) }
+        _ = try await server.request(); await environment.clock.waitForSleep(number: 1)
+        try server.headers(fields: ["Retry-After": "60"])
+        try server.write(Data(": connected\n\n".utf8)); await environment.clock.waitForSleep(number: 2)
+        environment.clock.advance(by: 10)
+        let payload: Data
+        switch service {
+        case .chatCompletions:
+            payload = Data("data: {\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"RAW_PRIVATE_ERROR_32\"}}\n\n".utf8)
+        case .responses:
+            payload = ResponsesFixture.sse([["type": "error", "sequence_number": 0, "code": "rate_limit_exceeded", "message": "RAW_PRIVATE_ERROR_32"]])
+        case .messages:
+            payload = MessagesFixture.sse([["type": "error", "error": ["type": "rate_limit_error", "message": "RAW_PRIVATE_ERROR_32"]]])
+        }
+        try server.write(payload)
+        do { _ = try await operation.value; Issue.record("An in-band rate limit was accepted") }
+        catch {
+            #expect(AIRequestError.reason(for: error) == .rateLimit)
+            #expect((error as? AIRequestFailure)?.retryAt == Date(timeIntervalSince1970: 1_060))
+        }
+    }
+
+    @Test(arguments: ["connection", "nonstreaming", "streaming"], AIServiceType.allCases)
+    func elapsedSleepTimeRejectsALateResponseEvenBeforeTheWatchdogResumes(_ phase: String, _ service: AIServiceType) async throws {
+        let environment = try IsolatedTestEnvironment(); defer { environment.close() }
+        let server = try LoopbackChatServer(); defer { server.close() }
+        let time = AITransportTime(now: { await environment.clock.now }, sleep: { try await environment.clock.sleep(for: $0) })
+        let parser: (any AIResponseStream)?
+        if phase != "streaming" { parser = nil }
+        else {
+            parser = switch service {
+            case .chatCompletions: ChatCompletionsStream()
+            case .responses: ResponsesStream()
+            case .messages: MessagesStream()
+            }
+        }
+        let operation = Task { try await AIHTTPTransport(configuration: .ephemeral, time: time)
+            .send(URLRequest(url: server.endpoint), stream: parser, service: service) }
+        _ = try await server.request(); await environment.clock.waitForSleep(number: 1)
+        if phase != "connection" {
+            try server.headers(); try server.write(Data(": connected\n\n".utf8))
+            await environment.clock.waitForSleep(number: 2)
+        }
+        environment.clock.elapseWithoutScheduling(by: phase == "connection" ? 30 : phase == "streaming" ? 90 : 300)
+        if phase == "connection" { try server.headers() }
+        try server.write(Data("LATE_RESPONSE_AFTER_WAKE_32\n\n".utf8))
+        do { _ = try await operation.value; Issue.record("A response after the deadline was accepted") }
+        catch { #expect(AIRequestError.reason(for: error) == .timeout) }
+    }
+
     @Test(arguments: [false, true])
     func messagesPreservesItsFullRouteAndNativeHeadersOverRealHTTP(_ streaming: Bool) async throws {
         let server = try LoopbackChatServer(); defer { server.close() }

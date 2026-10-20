@@ -334,6 +334,7 @@ final class ReportFlowTestEnvironment {
     let ai = ControlledAIService()
     var aiAccess: (any AIServiceAccess)?
     var generationEvents: [ReportGenerationEvent] = []
+    var onGenerationEvent: ((ReportGenerationEvent) -> Void)?
     var now = Date(timeIntervalSince1970: 1_000)
     var effects: [AppWindowEffect] = []
     var copies: [String] = []
@@ -358,7 +359,10 @@ final class ReportFlowTestEnvironment {
             recordCodexCheck: { self.codexEvents.append($0) },
             recordSessionScan: { self.scanEvents.append($0) },
             recordAIStorage: { self.aiStorageEvents.append($0) },
-            recordAIValidation: { self.aiValidationEvents.append($0) }, recordGeneration: { self.generationEvents.append($0) }, redactCredentials: self.redact,
+            recordAIValidation: { self.aiValidationEvents.append($0) }, recordGeneration: {
+                self.generationEvents.append($0)
+                self.onGenerationEvent?($0)
+            }, redactCredentials: self.redact,
             copyText: { self.copies.append($0) }
         )
     }

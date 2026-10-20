@@ -48,6 +48,22 @@ struct ReportBatchPrivacyTests {
         #expect(requests.allSatisfy { $0.credential == key && !$0.input.contains(key) && !$0.additionalInputs.contains(where: { $0.contains(key) }) })
         #expect(requests.last?.additionalInputs.contains(where: { $0.contains("INTERMEDIATE_PRIVATE_31") && $0.contains("[已遮盖凭据]") }) == true)
         #expect(requests.allSatisfy { !$0.input.contains("SOURCE_ID_PRIVATE_31") && !$0.input.contains("SOURCE_DIRECTORY_PRIVATE_31") })
+        let originalBody = flow.body, originalSources = flow.generationSources
+        for failing in [true, false] {
+            let before = await access.requests.count
+            await access.hold(stage: .extracting)
+            flow.send(.generateReport); await flow.waitForGeneration()
+            flow.send(.confirm(try #require(flow.confirmation).id)); await access.waitForRequests(before + 3)
+            if failing { await access.release(before, failure: .network) }
+            else { flow.send(.cancelGeneration) }
+            await flow.waitForGeneration(); await access.releaseAll()
+            #expect(flow.body == originalBody)
+            #expect(flow.generationSources?.groups.map(\.titles) == originalSources?.groups.map(\.titles))
+            #expect(flow.generationSources?.groups.map(\.directory) == originalSources?.groups.map(\.directory))
+            #expect(flow.generationSources?.historyDays == originalSources?.historyDays)
+            #expect(flow.generationError == (failing ? .network : .cancelled))
+            #expect(try await database.load().reports.isEmpty)
+        }
         flow.send(.save); await flow.waitForStorage()
         #expect(!flow.hasDraft && flow.generationSources == nil)
         let forbiddenDisk = [key, "RAW_WORK_PRIVATE_31", "INTERMEDIATE_PRIVATE_31", "SOURCE_ID_PRIVATE_31", "SOURCE_DIRECTORY_PRIVATE_31"]
@@ -59,6 +75,8 @@ struct ReportBatchPrivacyTests {
         let messages = memory.snapshot()
         let forbiddenLog = forbiddenDisk + ["PREFERENCES_PRIVATE_31", "ENDPOINT_PRIVATE_31", "QUERY_PRIVATE_31", "MODEL_PRIVATE_31", environment.credentialKey.base64EncodedString()]
         #expect(messages.contains { $0.message.contains("path=batched") && $0.message.contains("result=success") })
+        #expect(messages.contains { $0.message.contains("result=failure") })
+        #expect(messages.contains { $0.message.contains("result=cancelled") })
         for message in messages {
             #expect(forbiddenLog.allSatisfy { !message.message.contains($0) && !message.messageFormat.contains($0) })
             #expect(message.file == "DailyReports" && message.line == 0 && message.context == 0 && message.representedObject == nil)

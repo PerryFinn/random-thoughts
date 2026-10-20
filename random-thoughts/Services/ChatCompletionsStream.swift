@@ -23,8 +23,10 @@ nonisolated struct ChatCompletionsStream: AIResponseStream {
         if payload.isEmpty { return false }
         guard !done else { throw AIRequestError.invalidResponse }
         if payload == "[DONE]" { guard finished else { throw AIRequestError.incomplete }; done = true; return true }
-        guard let value = try? JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any],
-              let choices = value["choices"] as? [[String: Any]] else { throw AIRequestError.invalidResponse }
+        let data = Data(payload.utf8)
+        guard let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw AIRequestError.invalidResponse }
+        if value["error"] is [String: Any] { throw AIHTTPTransport.failure(status: 200, data: data, service: .chatCompletions) }
+        guard let choices = value["choices"] as? [[String: Any]] else { throw AIRequestError.invalidResponse }
         if let id = value["id"] as? String {
             if let identifier, identifier != id { throw AIRequestError.invalidResponse }
             identifier = id

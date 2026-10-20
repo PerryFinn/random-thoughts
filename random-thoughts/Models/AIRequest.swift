@@ -35,7 +35,7 @@ nonisolated enum AIRequestError: String, Error, Sendable {
         case .rateLimit: "服务明确限流。原内容保留，等待后只能手动从头重试。"
         case .quota: "服务明确报告配额不足。原内容保留，请检查服务额度。"
         case .serviceLimit: "服务限制原因未知。原内容与校验资格保留，请检查服务后手动重试。"
-        case .redirect: "请求端点返回重定向，已停止。请填写最终端点并重新校验。"
+        case .redirect: "请求端点返回重定向，已停止。原正文和来源保留，请填写最终端点并重新校验。"
         case .timeout: "请求已超时。原内容保留，可手动从头重试；服务方仍可能处理或计费。"
         case .cancelled: "已取消，原正文和来源保留；服务方仍可能处理或计费。"
         case .invalidResponse, .incomplete, .refusal: "结果不完整、被拒绝或不符合生成要求。原正文和来源保留，可手动从头重试。"
@@ -45,7 +45,9 @@ nonisolated enum AIRequestError: String, Error, Sendable {
         case .missingInput: "请先确认有效会话快照；改变选择后须重新确认。"
         case .missingConfiguration: "请先显式校验配置并设为当前，生成资格与当前身份独立。"
         case .streamingUnsupported, .structuredUnsupported: "服务明确拒绝该可选能力；生成只使用已证明支持的能力。"
-        case .network, .unavailable, .unknown: "请求未完成，原因未知或服务临时不可用。原内容与资格保留，可手动从头重试。"
+        case .network: "网络请求失败。原内容与资格保留，请检查网络后手动从头重试。"
+        case .unavailable: "服务暂时不可用。原内容与资格保留，请稍后手动从头重试。"
+        case .unknown: "请求未完成，原因未知。原内容与资格保留，请检查服务后手动从头重试。"
         }
     }
     static func reason(for error: any Error) -> Self {

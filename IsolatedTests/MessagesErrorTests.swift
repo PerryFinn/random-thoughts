@@ -4,6 +4,25 @@ import Testing
 
 @MainActor
 struct MessagesErrorTests {
+    @Test(arguments: ["thinking: temporary service failure", "temperature: unable to complete this request",
+                      "output_config.format: unknown failure"], [false, true])
+    func mentioningAFieldWithoutRejectionEvidenceDoesNotRevokeQualification(_ message: String, _ streaming: Bool) async throws {
+        let environment = try IsolatedTestEnvironment(); defer { environment.close() }
+        let response: [String: Any] = ["type": "error", "error": ["type": "invalid_request_error", "message": message]]
+        environment.transport.respond(with: streaming ? MessagesFixture.sse([response]) : try JSONSerialization.data(withJSONObject: response),
+                                       statusCode: streaming ? 200 : 400)
+        do {
+            _ = try await AIServiceClient(transport: .init(configuration: environment.transport.session.configuration, time: .production))
+                .execute(messagesRequest(endpoint: environment.transport.endpoint, intent: .composeReport, streaming: streaming))
+            Issue.record("A failed request was accepted")
+        } catch {
+            let reason = AIRequestError.reason(for: error)
+            #expect(reason == .unknown && !reason.invalidatesConfiguration)
+            #expect(!reason.message.contains(message))
+        }
+        #expect(environment.transport.requests.count == 1)
+    }
+
     @Test(arguments: [false, true])
     func explicitDisabledThinkingRejectionRequiresConfigurationRevalidation(_ streaming: Bool) async throws {
         let environment = try IsolatedTestEnvironment(); defer { environment.close() }

@@ -3,11 +3,12 @@ import Foundation
 
 actor ControlledAIService: AIServiceAccess {
     private(set) var requests: [AIRequest] = []
-    private var results: [Result<String, AIRequestError>] = []
+    private var results: [Result<String, any Error>] = []
     private var holdsNext = false
     private var held: CheckedContinuation<String, any Error>?
     private var observers: [(Int, CheckedContinuation<Void, Never>)] = []
-    func enqueue(_ result: Result<String, AIRequestError>) { results.append(result) }
+    func enqueue(_ result: Result<String, AIRequestError>) { results.append(result.mapError { $0 as any Error }) }
+    func enqueueFailure(_ failure: AIRequestFailure) { results.append(.failure(failure)) }
     func holdNextResponse() { holdsNext = true }
     func waitForRequest(_ number: Int = 1) async {
         if requests.count < number { await withCheckedContinuation { observers.append((number, $0)) } }
