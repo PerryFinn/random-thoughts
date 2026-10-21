@@ -38,6 +38,9 @@ struct ReportConfirmationView: View {
                 }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
+                        if !confirmation.savedDays.isEmpty { Text("已保存日报").font(.headline) }
+                        ForEach(confirmation.savedDays) { day in Text("\(day.calendarDate) · \(day.timeZoneIdentifier)") }
+                        if !confirmation.draftDays.isEmpty { Text("内存草稿").font(.headline) }
                         ForEach(confirmation.draftDays) { day in Text("\(day.calendarDate) · \(day.timeZoneIdentifier)") }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -72,6 +75,9 @@ struct ReportConfirmationView: View {
         switch confirmation.kind {
         case .overwrite: "覆盖保存工作日报"
         case .discard: "放弃当前草稿"
+        case .deleteReport: "删除工作日报及共存草稿"
+        case .clearReports: "清空全部日期和时区的日报内容"
+        case .resetData: "重置整个日报功能数据"
         case .close: "关闭前检查全部草稿（\(confirmation.draftDays.count) 份）"
         case .quit: "退出前检查全部草稿（\(confirmation.draftDays.count) 份）"
         case .settings(.quit): "退出前检查设置和全部草稿（\(confirmation.draftDays.count) 份）"
@@ -92,6 +98,9 @@ struct ReportConfirmationView: View {
         switch confirmation.kind {
         case .overwrite: "确认覆盖保存"
         case .discard: "放弃草稿"
+        case .deleteReport: "确认删除"
+        case .clearReports: "清空全部日报内容"
+        case .resetData: "重置日报数据库、设置和凭据"
         case .close: "放弃并关闭"
         case .quit: "放弃并退出"
         case .settings(.quit): "保存设置并放弃草稿退出"
@@ -111,6 +120,12 @@ struct ReportConfirmationView: View {
 
     private var explanation: String {
         switch confirmation.kind {
+        case .deleteReport(let day, _):
+            "删除 \(day.calendarDate) · \(day.timeZoneIdentifier) 的已保存日报及 \(confirmation.draftDays.count) 份共存草稿。成功提交才清除；候选选择保留，可主动重新生成。"
+        case .clearReports:
+            "清除全部时区的 \(confirmation.contentCounts?.saved ?? 0) 份已保存日报、\(confirmation.contentCounts?.drafts ?? 0) 份内存草稿、\(confirmation.contentCounts?.snapshots ?? 0) 份内存快照及全部候选和选择。设置、凭据、其他功能及 Codex 原会话保留。"
+        case .resetData:
+            "这会清除整个日报数据库及事务状态，包括全部日期和时区的日报、草稿、快照、常规设置、Codex 数据源配置、三种 AI 配置和凭据。其他功能及 Codex 原会话保留，不隐藏旧库备份。开始后中断会继续已确认的重置，部分失败时旧数据可能已不完整。版本不支持时建议先使用兼容应用。"
         case .settings(.quit), .codexSettings(.quit), .aiSettings(.quit):
             "保存设置或放弃设置后都会退出，并放弃以下全部日报草稿。需保留的日报请取消后逐份保存；取消不提交任何设置。"
         case .settings:

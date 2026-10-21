@@ -369,6 +369,7 @@ final class ReportFlowTestEnvironment {
 }
 
 actor ControlledReportStorage: DailyReportStorage {
+    var dataDirectory: URL? { nil }
     private var snapshot = ReportStorageSnapshot(reports: [], windowSize: nil, generalSettings: DailyReportGeneralSettings(), codexSource: CodexDataSourceSettings(), aiServices: AIServiceSettings())
     private var saveFailure = false
     private var loadFailure: ReportStorageError?
@@ -386,6 +387,20 @@ actor ControlledReportStorage: DailyReportStorage {
         if saveFailure { throw ReportStorageError.writeFailed }
         snapshot.reports.removeAll { $0.day == report.day }
         snapshot.reports.append(report)
+    }
+
+    func deleteReports(day: ReportDay?) async throws {
+        await waitForSaveIfHeld()
+        if saveFailure { throw ReportStorageError.writeFailed }
+        snapshot.reports.removeAll { day == nil || $0.day == day }
+    }
+
+    func reset() async throws -> ReportStorageSnapshot {
+        await waitForSaveIfHeld()
+        if saveFailure { throw ReportStorageError.resetIncomplete }
+        loadFailure = nil
+        snapshot = ReportStorageSnapshot(reports: [], windowSize: nil, generalSettings: DailyReportGeneralSettings(), codexSource: CodexDataSourceSettings(), aiServices: AIServiceSettings())
+        return snapshot
     }
 
     func saveWindowSize(_ size: CGSize) async throws {

@@ -105,15 +105,7 @@ private struct DailyReportSettingsView: View {
             } else if flow.settingsPage == .aiServices {
                 DailyReportAIServiceView(flow: flow)
             } else {
-                let section = DailyReportSettingsSection(rawValue: flow.settingsPage.rawValue)!
-                ScrollView {
-                    ContentUnavailableView {
-                        Label(section.title, systemImage: section.systemImage)
-                    } description: {
-                        Text(section.summary + "这些设置尚未开放。")
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                DailyReportContentManagementView(flow: flow)
             }
         }
         .padding(20)
@@ -138,21 +130,4 @@ private enum DailyReportSettingsSection: String, CaseIterable, Identifiable {
         }
     }
 
-    var systemImage: String {
-        switch self {
-        case .general: "slider.horizontal.3"
-        case .dataSource: "folder"
-        case .aiServices: "sparkles"
-        case .contentManagement: "externaldrive"
-        }
-    }
-
-    var summary: String {
-        switch self {
-        case .general: "管理报告时区、输出语言、生成偏好与历史日报回看。"
-        case .dataSource: "选择并检查用于读取本机会话的 Codex 数据源。"
-        case .aiServices: "分别配置、校验与选择工作日报使用的 AI 服务。"
-        case .contentManagement: "管理已保存的工作日报与本次窗口内存内容。"
-        }
-    }
 }

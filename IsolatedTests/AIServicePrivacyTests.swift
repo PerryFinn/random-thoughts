@@ -63,10 +63,10 @@ struct AIServicePrivacyTests {
         log.flushLog()
         let messages = memory.snapshot()
         #expect(messages.map(\.message) == [
-            "report_storage_finished operation=configuration result=success schema=4 credential_format=1",
-            "report_storage_finished operation=configuration result=failure schema=4 credential_format=1",
-            "report_storage_finished operation=configuration result=success schema=4 credential_format=1",
-            "report_storage_finished operation=credentialDeletion result=success schema=4 credential_format=1"
+            "report_storage_finished operation=configuration result=success schema=5 credential_format=2",
+            "report_storage_finished operation=configuration result=failure schema=5 credential_format=2",
+            "report_storage_finished operation=configuration result=success schema=5 credential_format=2",
+            "report_storage_finished operation=credentialDeletion result=success schema=5 credential_format=2"
         ])
         let forbidden = ["SYNTHETIC_LOG_", "ENDPOINT_SECRET_27", "QUERY_SECRET_27", "MODEL_SECRET_27",
                          envelope.combined.base64EncodedString(), environment.credentialKey.base64EncodedString()]

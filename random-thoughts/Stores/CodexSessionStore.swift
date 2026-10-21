@@ -19,6 +19,7 @@ final class CodexSessionStore {
     private(set) var activity: CodexScanActivity = .reading
     private var pendingUnknown: (day: ReportDay, ids: Set<String>)?
     private var generation: UInt64 = 0
+    private var confirmingDay: ReportDay?
     @ObservationIgnored private let access: any CodexSourceAccess
     @ObservationIgnored private let redact: @Sendable (String) throws -> String
     @ObservationIgnored private let record: (CodexScanEvent) -> Void
@@ -36,6 +37,7 @@ final class CodexSessionStore {
     func scan(for day: ReportDay) -> CodexSessionScan? { selections[day]?.scan }
     func selectedIDs(for day: ReportDay) -> Set<String> { selections[day]?.ids ?? [] }
     func snapshot(for day: ReportDay) -> CodexSessionSnapshot? { selections[day]?.snapshot }
+    var snapshotCount: Int { selections.values.filter { $0.snapshot != nil }.count }
     func error(for day: ReportDay) -> CodexSourceError? { selections[day]?.error }
     func needsConfirmation(for day: ReportDay) -> Bool {
         guard let selection = selections[day] else { return false }
@@ -116,6 +118,7 @@ final class CodexSessionStore {
         let sessions = scan.sessions.filter { selection.ids.contains($0.id) }
         let expected = generation
         isConfirming = true
+        confirmingDay = day
         let redact = redact
         let worker = Task.detached(priority: .userInitiated) { () -> CodexSessionSnapshot? in
                 var failed = false
@@ -140,6 +143,7 @@ final class CodexSessionStore {
             let snapshot = await worker.value
             guard expected == generation, selections[day]?.revision == selection.revision, !Task.isCancelled, let snapshot else { return }
             isConfirming = false
+            confirmingDay = nil
             confirmationWorker = nil
             selections[day]?.snapshot = snapshot
             selections[day]?.confirmedRevision = selection.revision
@@ -162,7 +166,12 @@ final class CodexSessionStore {
         confirmationWorker = nil
         activeDay = nil
         isConfirming = false
+        confirmingDay = nil
         pendingUnknown = nil
+    }
+
+    func cancel(for day: ReportDay) {
+        if activeDay == day || confirmingDay == day { cancel() }
     }
 
     func sourceChanged() {

@@ -1,6 +1,6 @@
 # 报告时区与常规生成设置
 
-本切片实现 [#24](https://github.com/PerryFinn/random-thoughts/issues/24)，遵守父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 第 2、7、10、12 组、设置决议 #13 及 ADR-0002／0003。常规设置由本票开放；数据源由 [#25](codex-data-source.md) 接入，AI 服务配置与凭据由 [#27](ai-service-settings.md) 接入，内容管理仍由后续票承接。
+本切片实现 [#24](https://github.com/PerryFinn/random-thoughts/issues/24)，遵守父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 第 2、7、10、12 组、设置决议 #13 及 ADR-0002／0003。常规设置由本票开放；数据源由 [#25](codex-data-source.md) 接入，AI 服务配置与凭据由 [#27](ai-service-settings.md) 接入，内容管理由 [#33](daily-report-storage-management.md) 接入。
 
 ## 统一流程与编辑
 
@@ -30,8 +30,8 @@
 
 ## 持久化与验证边界
 
-当前 schema 为 4，常规设置表保存模式、固定 IANA 原值、语言、偏好、回看天数；#25 增加来源配置及有限历史诊断表，[#27](ai-service-settings.md) 增加三协议配置、加密凭据和独立当前选择。新库显式初始化默认值；已有表／行／字段缺失或无效不静默补默认。已保存固定时区失效属于设置修复状态，保留值而不当作空库。
+当前 schema 为 5，常规设置表保存模式、固定 IANA 原值、语言、偏好、回看天数；#25 增加来源配置及有限历史诊断表，[#27](ai-service-settings.md) 增加三协议配置、加密凭据和独立当前选择，#33 接入事务迁移与格式 2 凭据封装。新库显式初始化默认值；已有表／行／字段缺失或无效不静默补默认。已保存固定时区失效属于设置修复状态，保留值而不当作空库。
 
-按本仓库当前要求，本票不做向后兼容或数据迁移；旧 schema 拒绝读写并保留原数据，不自动重建、重置或删除用户数据库。目录独占、权限、事务和禁止内容副本继续沿用 #23。设置保存失败后可主动本地重试。
+[#33](daily-report-storage-management.md) 接入日报专用库受支持旧格式的事务迁移；未知新版拒绝读写并保留原数据，不自动重建或未经确认重置。既有模型／蓝牙数据不迁移。目录独占、权限、事务和禁止内容副本继续沿用 #23。设置保存失败后可主动本地重试。
 
 已确认测试边界仍为流程动作／状态、真实 SQLite 事务和无窗口 `NSHostingView` 布局。使用合成数据、独立目录、受控时区与取消／重扫接收器；不启动应用，不访问真实 Codex／AI。实际命令、结果及未执行项记录于 [testing.md](testing.md)。

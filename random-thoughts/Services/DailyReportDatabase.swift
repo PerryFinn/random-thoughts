@@ -3,15 +3,45 @@ import Foundation
 import SQLite3
 
 actor DailyReportDatabase: DailyReportStorage {
+    var dataDirectory: URL? { directory }
     private let directory: URL
     private var connection: ReportSQLiteConnection?
+    private var directoryAccess: ReportStorageDirectory?
+    private let credentialCodec: AICredentialCodec
+    private let resetProgress: @Sendable (ReportResetPhase) throws -> Void
 
-    init(directory: URL) { self.directory = directory }
+    init(directory: URL, credentialCodec: AICredentialCodec = .bundled(),
+         resetProgress: @escaping @Sendable (ReportResetPhase) throws -> Void = { _ in }) {
+        self.directory = directory
+        self.credentialCodec = credentialCodec
+        self.resetProgress = resetProgress
+    }
 
-    func close() { connection = nil }
+    func close() { connection = nil; directoryAccess = nil }
 
-    func load() async throws -> ReportStorageSnapshot { try open().load() }
+    func reset() async throws -> ReportStorageSnapshot {
+        let access = try acquireDirectory()
+        connection = nil
+        do {
+            try access.recordResetIntent()
+            try resetProgress(.intentRecorded)
+            try access.removeDatabaseFiles()
+            try resetProgress(.filesRemoved)
+            let fresh = try ReportSQLiteConnection(directory: directory, credentialCodec: credentialCodec)
+            let snapshot = try fresh.load()
+            try resetProgress(.databaseInitialized)
+            try access.completeReset()
+            connection = fresh
+            return snapshot
+        } catch { throw ReportStorageError.resetIncomplete }
+    }
+
+    func load() async throws -> ReportStorageSnapshot {
+        if connection == nil, try acquireDirectory().hasConfirmedReset() { return try await reset() }
+        return try open().load()
+    }
     func save(_ report: SavedDailyReport) async throws { try open().save(report) }
+    func deleteReports(day: ReportDay?) async throws { try open().deleteReports(day: day) }
     func saveWindowSize(_ size: CGSize) async throws { try open().saveWindowSize(size) }
     func saveGeneralSettings(_ settings: DailyReportGeneralSettings) async throws { try open().saveGeneralSettings(settings) }
     func saveAIService(_ service: SavedAIService) async throws { try open().saveAIService(service) }
@@ -26,41 +56,34 @@ actor DailyReportDatabase: DailyReportStorage {
     }
 
     private func open() throws -> ReportSQLiteConnection {
+        try Task.checkCancellation()
         if let connection { return connection }
-        let opened = try ReportSQLiteConnection(directory: directory)
+        let access = try acquireDirectory()
+        guard try !access.hasConfirmedReset() else { throw ReportStorageError.recoveryRequired }
+        let opened = try ReportSQLiteConnection(directory: directory, credentialCodec: credentialCodec)
         connection = opened
         return opened
     }
+
+    private func acquireDirectory() throws -> ReportStorageDirectory {
+        if let directoryAccess { return directoryAccess }
+        let access = try ReportStorageDirectory(directory)
+        directoryAccess = access
+        return access
+    }
 }
 
-// The database actor exclusively owns this connection and its lifetime lock.
+// The database actor exclusively owns this connection, under its separate directory lock.
 private nonisolated final class ReportSQLiteConnection {
     private var database: OpaquePointer?
-    private var lockDescriptor: Int32 = -1
     private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-    init(directory: URL) throws {
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        } catch { throw ReportStorageError.unavailable }
-        var directoryInfo = stat()
-        guard lstat(directory.path, &directoryInfo) == 0,
-              directoryInfo.st_mode & S_IFMT == S_IFDIR, directoryInfo.st_uid == getuid(),
-              chmod(directory.path, 0o700) == 0 else { throw ReportStorageError.unavailable }
-
-        lockDescriptor = Darwin.open(directory.appendingPathComponent("storage.lock").path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard lockDescriptor >= 0, fchmod(lockDescriptor, 0o600) == 0 else { throw ReportStorageError.unavailable }
-        guard flock(lockDescriptor, LOCK_EX | LOCK_NB) == 0 else {
-            throw errno == EWOULDBLOCK ? ReportStorageError.occupied : .unavailable
-        }
+    init(directory: URL, credentialCodec: AICredentialCodec) throws {
         let url = directory.appendingPathComponent("reports.sqlite")
-        if try Self.exists(directory.appendingPathComponent("reset-intent")) {
-            throw ReportStorageError.recoveryRequired
-        }
-        let exists = try Self.exists(url)
+        let exists = try ReportStorageDirectory.exists(url)
         if !exists {
             for name in ["reports.sqlite-journal", "reports.sqlite-wal", "reports.sqlite-shm"] {
-                if try Self.exists(directory.appendingPathComponent(name)) { throw ReportStorageError.recoveryRequired }
+                if try ReportStorageDirectory.exists(directory.appendingPathComponent(name)) { throw ReportStorageError.recoveryRequired }
             }
             let descriptor = Darwin.open(url.path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
             guard descriptor >= 0 else { throw ReportStorageError.unavailable }
@@ -73,80 +96,121 @@ private nonisolated final class ReportSQLiteConnection {
         guard sqlite3_open_v2(url.path, &database, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
             throw ReportStorageError.unavailable
         }
+        let version = exists ? try integer("PRAGMA user_version") : 0
         if exists {
-            guard try integer("PRAGMA user_version") == 4 else { throw ReportStorageError.unsupportedVersion }
+            guard (1...5).contains(version) else { throw ReportStorageError.unsupportedVersion }
             guard try text("PRAGMA quick_check") == "ok" else { throw ReportStorageError.invalidData }
-            try validateColumns("reports", expected: [
-                ("calendar_date", "TEXT", true, 1), ("time_zone", "TEXT", true, 2),
-                ("markdown", "TEXT", true, 0), ("saved_at", "REAL", true, 0), ("last_edited_at", "REAL", false, 0)
-            ])
-            try validateColumns("window_state", expected: [
-                ("id", "INTEGER", false, 1), ("width", "REAL", true, 0), ("height", "REAL", true, 0)
-            ])
-            try validateColumns("general_settings", expected: [
-                ("id", "INTEGER", false, 1), ("time_zone_mode", "TEXT", true, 0),
-                ("fixed_time_zone", "TEXT", true, 0), ("output_language", "TEXT", true, 0),
-                ("generation_preferences", "TEXT", true, 0), ("history_lookback_days", "INTEGER", true, 0)
-            ])
-            try validateColumns("codex_source", expected: [
-                ("id", "INTEGER", false, 1), ("mode", "TEXT", true, 0),
-                ("executable_path", "TEXT", true, 0), ("explicit_directory", "TEXT", true, 0),
-                ("resolved_directory", "TEXT", false, 0), ("last_successful_check", "REAL", false, 0),
-                ("version", "TEXT", false, 0)
-            ])
-            try validateColumns("ai_services", expected: [("protocol", "TEXT", true, 1), ("record", "TEXT", true, 0)])
-            try validateColumns("ai_selection", expected: [("id", "INTEGER", false, 1), ("protocol", "TEXT", false, 0)])
+            try validateSchema(version: version)
         }
         try execute("PRAGMA journal_mode=DELETE; PRAGMA synchronous=EXTRA; PRAGMA secure_delete=ON; PRAGMA temp_store=MEMORY")
         guard try text("PRAGMA journal_mode") == "delete",
               try integer("PRAGMA synchronous") == 3,
               try integer("PRAGMA secure_delete") == 1 else { throw ReportStorageError.unavailable }
-        if !exists {
-            try transaction {
-                try execute("""
-                    CREATE TABLE reports (
-                        calendar_date TEXT NOT NULL, time_zone TEXT NOT NULL, markdown TEXT NOT NULL,
-                        saved_at REAL NOT NULL, last_edited_at REAL,
-                        PRIMARY KEY (calendar_date, time_zone)
-                    ) STRICT;
-                    CREATE TABLE window_state (
-                        id INTEGER PRIMARY KEY CHECK(id=1), width REAL NOT NULL, height REAL NOT NULL
-                    ) STRICT;
-                    CREATE TABLE general_settings (
-                        id INTEGER PRIMARY KEY CHECK(id=1), time_zone_mode TEXT NOT NULL,
-                        fixed_time_zone TEXT NOT NULL, output_language TEXT NOT NULL,
-                        generation_preferences TEXT NOT NULL, history_lookback_days INTEGER NOT NULL
-                    ) STRICT;
-                    INSERT INTO general_settings VALUES(1,'followMac','Etc/UTC','chinese','',1);
-                    CREATE TABLE codex_source (
-                        id INTEGER PRIMARY KEY CHECK(id=1), mode TEXT NOT NULL,
-                        executable_path TEXT NOT NULL, explicit_directory TEXT NOT NULL,
-                        resolved_directory TEXT, last_successful_check REAL, version TEXT
-                    ) STRICT;
-                    INSERT INTO codex_source VALUES(1,'automatic','','',NULL,NULL,NULL);
-                    CREATE TABLE ai_services (protocol TEXT PRIMARY KEY NOT NULL, record TEXT NOT NULL) STRICT;
-                    CREATE TABLE ai_selection (id INTEGER PRIMARY KEY CHECK(id=1), protocol TEXT) STRICT;
-                    INSERT INTO ai_selection VALUES(1,NULL);
-                    PRAGMA user_version=4;
-                    """)
-                for service in AIServiceType.allCases {
-                    try writeAIService(SavedAIService(configuration: AIServiceConfiguration(service: service)), insert: true)
+        if version < 5 {
+            do {
+                try transaction {
+                    if version < 1 {
+                        try execute("""
+                        CREATE TABLE reports (
+                            calendar_date TEXT NOT NULL, time_zone TEXT NOT NULL, markdown TEXT NOT NULL,
+                            saved_at REAL NOT NULL, last_edited_at REAL,
+                            PRIMARY KEY (calendar_date, time_zone)
+                        ) STRICT;
+                        CREATE TABLE window_state (
+                            id INTEGER PRIMARY KEY CHECK(id=1), width REAL NOT NULL, height REAL NOT NULL
+                        ) STRICT;
+                        """)
+                    }
+                    if version < 2 {
+                        try execute("""
+                        CREATE TABLE general_settings (
+                            id INTEGER PRIMARY KEY CHECK(id=1), time_zone_mode TEXT NOT NULL,
+                            fixed_time_zone TEXT NOT NULL, output_language TEXT NOT NULL,
+                            generation_preferences TEXT NOT NULL, history_lookback_days INTEGER NOT NULL
+                        ) STRICT;
+                        INSERT INTO general_settings VALUES(1,'followMac','Etc/UTC','chinese','',1);
+                        """)
+                    }
+                    if version < 3 {
+                        try execute("""
+                        CREATE TABLE codex_source (
+                            id INTEGER PRIMARY KEY CHECK(id=1), mode TEXT NOT NULL,
+                            executable_path TEXT NOT NULL, explicit_directory TEXT NOT NULL,
+                            resolved_directory TEXT, last_successful_check REAL, version TEXT
+                        ) STRICT;
+                        INSERT INTO codex_source VALUES(1,'automatic','','',NULL,NULL,NULL);
+                        """)
+                    }
+                    if version < 4 {
+                        try execute("""
+                        CREATE TABLE ai_services (protocol TEXT PRIMARY KEY NOT NULL, record TEXT NOT NULL) STRICT;
+                        CREATE TABLE ai_selection (id INTEGER PRIMARY KEY CHECK(id=1), protocol TEXT) STRICT;
+                        INSERT INTO ai_selection VALUES(1,NULL);
+                        """)
+                        for service in AIServiceType.allCases {
+                            try writeAIService(SavedAIService(configuration: AIServiceConfiguration(service: service)), insert: true)
+                        }
+                    }
+                    try validateSchema(version: 5)
+                    let old = try load()
+                    for var service in old.aiServices.configurations.values {
+                        guard let envelope = service.credential, envelope.formatVersion == 1 else { continue }
+                        let value: String
+                        do { value = try credentialCodec.open(envelope) }
+                        catch AICredentialError.unsupportedFormat { continue }
+                        catch AICredentialError.unknownKeyVersion { continue }
+                        catch AICredentialError.authenticationFailed { continue }
+                        service.credential = try credentialCodec.seal(value)
+                        try writeAIService(service, insert: false)
+                    }
+                    try execute("PRAGMA user_version=5")
+                    _ = try load()
                 }
-            }
+            } catch { throw exists ? ReportStorageError.migrationFailed : .writeFailed }
         }
         _ = try load()
     }
 
     deinit {
         if let database { sqlite3_close(database) }
-        if lockDescriptor >= 0 { Darwin.close(lockDescriptor) }
     }
 
-    private static func exists(_ url: URL) throws -> Bool {
-        var info = stat()
-        if lstat(url.path, &info) == 0 { return true }
-        guard errno == ENOENT else { throw ReportStorageError.unavailable }
-        return false
+    private func validateSchema(version: Int32) throws {
+        var names: Set<String> = ["reports", "window_state"]
+        if version >= 2 { names.insert("general_settings") }
+        if version >= 3 { names.insert("codex_source") }
+        if version >= 4 { names.formUnion(["ai_services", "ai_selection"]) }
+        var actual: Set<String> = []
+        try statement("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'") { query in
+            while try next(query) { actual.insert(try columnText(query, 0)) }
+        }
+        guard actual == names else { throw ReportStorageError.invalidData }
+        try validateColumns("reports", expected: [
+            ("calendar_date", "TEXT", true, 1), ("time_zone", "TEXT", true, 2),
+            ("markdown", "TEXT", true, 0), ("saved_at", "REAL", true, 0), ("last_edited_at", "REAL", false, 0)
+        ])
+        try validateColumns("window_state", expected: [
+            ("id", "INTEGER", false, 1), ("width", "REAL", true, 0), ("height", "REAL", true, 0)
+        ])
+        if version >= 2 {
+            try validateColumns("general_settings", expected: [
+                ("id", "INTEGER", false, 1), ("time_zone_mode", "TEXT", true, 0),
+                ("fixed_time_zone", "TEXT", true, 0), ("output_language", "TEXT", true, 0),
+                ("generation_preferences", "TEXT", true, 0), ("history_lookback_days", "INTEGER", true, 0)
+            ])
+        }
+        if version >= 3 {
+            try validateColumns("codex_source", expected: [
+                ("id", "INTEGER", false, 1), ("mode", "TEXT", true, 0),
+                ("executable_path", "TEXT", true, 0), ("explicit_directory", "TEXT", true, 0),
+                ("resolved_directory", "TEXT", false, 0), ("last_successful_check", "REAL", false, 0),
+                ("version", "TEXT", false, 0)
+            ])
+        }
+        if version >= 4 {
+            try validateColumns("ai_services", expected: [("protocol", "TEXT", true, 1), ("record", "TEXT", true, 0)])
+            try validateColumns("ai_selection", expected: [("id", "INTEGER", false, 1), ("protocol", "TEXT", false, 0)])
+        }
     }
 
     func load() throws -> ReportStorageSnapshot {
@@ -299,6 +363,18 @@ private nonisolated final class ReportSQLiteConnection {
         }
     }
 
+    func deleteReports(day: ReportDay?) throws {
+        try transaction {
+            try statement(day == nil ? "DELETE FROM reports" : "DELETE FROM reports WHERE calendar_date=? AND time_zone=?") { query in
+                if let day {
+                    try bind(day.calendarDate, to: query, at: 1)
+                    try bind(day.timeZoneIdentifier, to: query, at: 2)
+                }
+                guard sqlite3_step(query) == SQLITE_DONE else { throw ReportStorageError.writeFailed }
+            }
+        }
+    }
+
     func saveWindowSize(_ size: CGSize) throws {
         guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else {
             throw ReportStorageError.invalidData
@@ -367,6 +443,7 @@ private nonisolated final class ReportSQLiteConnection {
         do {
             try execute("BEGIN IMMEDIATE")
             try operation()
+            try Task.checkCancellation()
             try execute("COMMIT")
         } catch {
             try? execute("ROLLBACK")

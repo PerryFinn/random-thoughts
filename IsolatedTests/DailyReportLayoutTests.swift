@@ -6,6 +6,24 @@ import Testing
 
 @MainActor
 struct DailyReportLayoutTests {
+    @Test func contentManagementAndDestructiveConfirmationsFitWithoutAWindow() async throws {
+        let environment = ReportFlowTestEnvironment()
+        let flow = environment.makeFlow()
+        flow.send(.open(.settings)); flow.send(.open(.report)); await flow.waitForStorage()
+        flow.send(.save); await flow.waitForStorage()
+        flow.send(.requestSettingsPage(.contentManagement))
+        let view = NSHostingView(rootView: DailyReportContentManagementView(flow: flow).frame(width: 580, height: 500))
+        #expect(view.fittingSize == NSSize(width: 580, height: 500) && view.window == nil)
+        for all in [false, true] {
+            if all { flow.send(.requestClearReports) }
+            else { flow.send(.requestDeleteReport(flow.selectedDay, window: .settings)) }
+            let sheet = NSHostingView(rootView: ReportConfirmationView(flow: flow, confirmation: try #require(flow.confirmation))
+                .frame(width: 600, height: 300))
+            #expect(sheet.fittingSize == NSSize(width: 600, height: 300) && sheet.window == nil)
+            flow.send(.cancelConfirmation)
+        }
+    }
+
     @Test func batchPlanAndLiveProgressFitTheMinimumReportWithoutAWindow() async throws {
         let environment = ReportFlowTestEnvironment(), access = BatchAIService(holds: true)
         environment.aiAccess = access

@@ -105,7 +105,7 @@ struct DailyReportView: View {
     @ViewBuilder private var content: some View {
         if !flow.isStorageReady {
             ContentUnavailableView("日报存储", systemImage: "externaldrive", description: Text(
-                flow.storageError == nil ? "正在打开本机日报数据库…" : "存储尚不可用，原数据已保留。修复后可重新打开日报窗口。"
+                flow.storageError?.message ?? "正在打开本机日报数据库…"
             ))
         } else if !flow.canEditSelectedReport {
             ContentUnavailableView {
@@ -155,6 +155,9 @@ struct DailyReportView: View {
             Button("放弃草稿") { flow.send(.requestDiscardDraft) }
                 .disabled(!flow.hasDraft || flow.isSaving || flow.isGeneratingSelectedReport)
                 .pointerStyle(flow.hasDraft && !flow.isSaving && !flow.isGeneratingSelectedReport ? .link : .default)
+            Button("删除日报", role: .destructive) { flow.send(.requestDeleteReport(flow.selectedDay)) }
+                .disabled(flow.savedReports[flow.selectedDay] == nil || flow.isSaving)
+                .pointerStyle(flow.savedReports[flow.selectedDay] != nil && !flow.isSaving ? .link : .default)
             if flow.generationRetryAt != nil {
                 TimelineView(.periodic(from: .now, by: 1)) { _ in generateButton }
             } else { generateButton }

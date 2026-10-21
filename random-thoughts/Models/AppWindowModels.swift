@@ -24,5 +24,6 @@ enum AppWindowEffect: Equatable, Sendable {
     case closeReport(session: UUID)
     case closeSettings(session: UUID)
     case restoreReportSize(CGSize, session: UUID)
+    case openReportDataDirectory(URL)
     case quit
 }

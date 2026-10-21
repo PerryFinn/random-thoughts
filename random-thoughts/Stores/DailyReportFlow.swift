@@ -25,6 +25,10 @@ final class DailyReportFlow {
         case confirm(UUID)
         case cancelConfirmation
         case requestDiscardDraft
+        case requestDeleteReport(ReportDay, window: AppWindowKind = .report)
+        case requestClearReports
+        case requestResetReportData
+        case openReportDataDirectory
         case requestCloseReport(UUID)
         case setPreview(Bool)
         case normalReportSizeChanged(CGSize, session: UUID)
@@ -159,6 +163,12 @@ final class DailyReportFlow {
     var selectedDate: Date { selectedDay.start }
     var body: String { drafts[selectedDay]?.markdown ?? savedReports[selectedDay]?.markdown ?? "" }
     var hasDraft: Bool { drafts[selectedDay] != nil }
+    var contentCounts: ReportContentCounts {
+        ReportContentCounts(saved: savedReports.count, drafts: drafts.count, snapshots: sessionStore.snapshotCount)
+    }
+    var canResetReportData: Bool {
+        !isSaving && !isLoadingStorage && storageError != nil && storageError != .occupied
+    }
     var draftDays: [ReportDay] {
         drafts.keys.sorted { ($0.calendarDate, $0.timeZoneIdentifier) < ($1.calendarDate, $1.timeZoneIdentifier) }
     }
@@ -188,6 +198,7 @@ final class DailyReportFlow {
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let storage: any DailyReportStorage
     @ObservationIgnored private let copyText: (String) -> Void
+    @ObservationIgnored private let recordStorage: (AIServiceStorageEvent) -> Void
     @ObservationIgnored private var storageTask: Task<Void, Never>?
     @ObservationIgnored private var quitTask: Task<Void, Never>?
     private let codexSourceStore: CodexDataSourceStore
@@ -226,6 +237,7 @@ final class DailyReportFlow {
         self.performContextEffect = performContextEffect
         self.recordWindowMode = recordWindowMode
         self.copyText = copyText
+        self.recordStorage = recordAIStorage
         let sessionStore = CodexSessionStore(access: codexSourceAccess, redact: redactCredentials, record: recordSessionScan)
         self.sessionStore = sessionStore
         codexSourceStore = CodexDataSourceStore(
@@ -279,6 +291,7 @@ final class DailyReportFlow {
             if lastAppliedMode != windowMode {
                 applyMode()
             }
+            if let kind = confirmation?.kind { setConfirmation(kind) }
         case .hide:
             performWindowEffect(.hide)
         case .minimizeReport:
@@ -362,15 +375,25 @@ final class DailyReportFlow {
                 saveCurrentReport()
             case .discard(let day):
                 drafts.removeValue(forKey: day)
+                reportEditRevision += 1
+            case .deleteReport(let day, _):
+                deleteReports(day: day)
+            case .clearReports:
+                deleteReports(day: nil)
+            case .resetData:
+                guard canResetReportData else { return }
+                resetReportData()
             case .close(let session):
                 guard openWindows[.report] == session else { return }
                 generationStore.clear()
                 drafts.removeAll()
                 sessionStore.clear()
+                reportEditRevision += 1
                 performWindowEffect(.closeReport(session: session))
             case .quit:
                 generationStore.cancel()
                 drafts.removeAll()
+                reportEditRevision += 1
                 quitAfterPendingSizeWrites()
             case .settings(let continuation):
                 guard openWindows[.settings] != nil, pending.settings == generalSettingsEdit else { return }
@@ -424,6 +447,20 @@ final class DailyReportFlow {
         case .requestDiscardDraft:
             guard !isSaving, !isGeneratingSelectedReport, hasDraft else { return }
             setConfirmation(.discard(selectedDay))
+        case .requestDeleteReport(let day, let window):
+            guard isStorageReady, !isSaving, savedReports[day] != nil, openWindows[window] != nil,
+                  window != .settings || settingsPage == .contentManagement else { return }
+            setConfirmation(.deleteReport(day, window: window))
+        case .requestClearReports:
+            guard isStorageReady, !isSaving, settingsPage == .contentManagement, openWindows[.settings] != nil else { return }
+            setConfirmation(.clearReports)
+        case .requestResetReportData:
+            guard canResetReportData, openWindows[.settings] != nil, settingsPage == .contentManagement else { return }
+            setConfirmation(.resetData)
+        case .openReportDataDirectory:
+            Task {
+                if let directory = await storage.dataDirectory { performWindowEffect(.openReportDataDirectory(directory)) }
+            }
         case .requestCloseReport(let session):
             guard !isSaving, openWindows[.report] == session else { return }
             if drafts.isEmpty && activeGenerationDay == nil {
@@ -620,7 +657,10 @@ final class DailyReportFlow {
             selectSessions(Set(sessionScan?.sessions.map(\.id) ?? []), included: included)
         case .confirmSessionSelection:
             guard openWindows[.report] != nil, canConfirmSessionSelection else { return }
-            sessionStore.confirm(day: selectedDay) { self.isSourceDrawerVisible = false }
+            sessionStore.confirm(day: selectedDay) {
+                self.isSourceDrawerVisible = false
+                if let kind = self.confirmation?.kind { self.setConfirmation(kind) }
+            }
         }
     }
 
@@ -686,7 +726,7 @@ final class DailyReportFlow {
     }
 
     private func selectSessions(_ ids: Set<String>, included: Bool) {
-        guard openWindows[.report] != nil else { return }
+        guard !isSaving, openWindows[.report] != nil else { return }
         if case .unknownSources = confirmation?.kind {
             confirmation = nil
             sessionStore.cancelUnknown()
@@ -725,6 +765,16 @@ final class DailyReportFlow {
             confirmation = drafts[day] == nil ? nil : ReportConfirmation(
                 kind: kind, previousMarkdown: nil, markdown: nil, draftDays: [day]
             )
+        case .deleteReport(let day, _):
+            confirmation = savedReports[day] == nil ? nil : ReportConfirmation(
+                kind: kind, previousMarkdown: nil, markdown: nil, draftDays: drafts[day] == nil ? [] : [day], savedDays: [day]
+            )
+        case .clearReports:
+            confirmation = ReportConfirmation(kind: kind, previousMarkdown: nil, markdown: nil, draftDays: draftDays,
+                contentCounts: contentCounts, savedDays: savedReports.keys.sorted { $0.id.calendarDate + $0.id.timeZoneIdentifier < $1.id.calendarDate + $1.id.timeZoneIdentifier })
+        case .resetData:
+            confirmation = ReportConfirmation(kind: kind, previousMarkdown: nil, markdown: nil, draftDays: draftDays,
+                contentCounts: contentCounts)
         case .close, .quit:
             confirmation = ReportConfirmation(
                 kind: kind, previousMarkdown: nil, markdown: nil, draftDays: draftDays, isGenerating: activeGenerationDay != nil
@@ -777,7 +827,7 @@ final class DailyReportFlow {
             isPreview = false
         }
         openWindows[kind] = session
-        if !isStorageReady, !isLoadingStorage {
+        if !isStorageReady, !isLoadingStorage, !isSaving {
             storageError = nil
             isLoadingStorage = true
             storageTask = Task {
@@ -838,6 +888,80 @@ final class DailyReportFlow {
         }
     }
 
+    private func deleteReports(day: ReportDay?) {
+        if day == nil || activeGenerationDay == day { generationStore.clear() }
+        if let day { sessionStore.cancel(for: day) } else { sessionStore.cancel() }
+        reportEditRevision += 1
+        isSaving = true
+        storageError = nil
+        notice = nil
+        let previous = storageTask
+        storageTask = Task {
+            await previous?.value
+            do {
+                try await storage.deleteReports(day: day)
+                if let day {
+                    savedReports.removeValue(forKey: day)
+                    drafts.removeValue(forKey: day)
+                } else {
+                    savedReports.removeAll()
+                    drafts.removeAll()
+                    sessionStore.clear()
+                }
+                notice = day == nil ? "已清空全部日报内容，设置和凭据保留" : "已删除工作日报及共存草稿"
+                recordStorage(AIServiceStorageEvent(operation: day == nil ? .reportClear : .reportDeletion, result: .success))
+            } catch {
+                storageError = error as? ReportStorageError ?? .writeFailed
+                recordStorage(AIServiceStorageEvent(operation: day == nil ? .reportClear : .reportDeletion, result: .failure))
+            }
+            finishSaving()
+        }
+    }
+
+    private func resetReportData() {
+        generationStore.clear()
+        sessionStore.clear()
+        codexSourceStore.cancelCheck()
+        aiServiceStore.cancelValidation()
+        aiServiceStore.revert()
+        quitTask?.cancel()
+        quitTask = nil
+        reportEditRevision += 1
+        isSaving = true
+        isStorageReady = false
+        drafts.removeAll()
+        savedReports.removeAll()
+        generalSettings = DailyReportGeneralSettings()
+        generalSettingsEdit = generalSettings
+        codexSourceStore.restore(CodexDataSourceSettings())
+        notice = nil
+        settingsNotice = nil
+        let previous = storageTask
+        storageTask = Task {
+            await previous?.value
+            await aiServiceStore.restore(AIServiceSettings())
+            do {
+                let snapshot = try await storage.reset()
+                reportWindowSize = snapshot.windowSize
+                generalSettings = snapshot.generalSettings
+                generalSettingsEdit = snapshot.generalSettings
+                codexSourceStore.restore(snapshot.codexSource)
+                await aiServiceStore.restore(snapshot.aiServices)
+                settingsValidationError = nil
+                settingsStorageError = nil
+                storageError = nil
+                isStorageReady = true
+                if let timeZone = effectiveReportTimeZone { selectedDay = ReportDay(date: now(), timeZone: timeZone) }
+                notice = "已重置日报功能数据，所有日报设置和凭据已清除"
+                recordStorage(AIServiceStorageEvent(operation: .reset, result: .success))
+            } catch {
+                storageError = error as? ReportStorageError ?? .resetIncomplete
+                recordStorage(AIServiceStorageEvent(operation: .reset, result: .failure))
+            }
+            finishSaving()
+        }
+    }
+
     private func saveGeneralSettings(continuation: ReportSettingsContinuation) {
         let settings = generalSettingsEdit
         let affectedDays = settingsDraftImpact
@@ -872,6 +996,7 @@ final class DailyReportFlow {
             pendingMacTimeZone = nil
             send(.systemTimeZoneChanged(timeZone))
         }
+        if let kind = confirmation?.kind { setConfirmation(kind) }
     }
 
     private func saveAIService(_ configuration: AIServiceConfiguration, continuation: ReportSettingsContinuation) {
@@ -917,6 +1042,7 @@ final class DailyReportFlow {
             }
         case .quit:
             drafts.removeAll()
+            reportEditRevision += 1
             quitAfterPendingSizeWrites()
         }
     }

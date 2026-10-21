@@ -11,7 +11,7 @@ struct AICredentialTests {
         let raw = "SYNTHETIC_KEY_27\u{0} 秘密 👩🏽‍💻  "
         let first = try await cipher.seal(raw)
         let second = try await cipher.seal(raw)
-        #expect(first.formatVersion == 1)
+        #expect(first.formatVersion == 2)
         #expect(first.keyVersion == 1)
         #expect(first.combined != second.combined)
         #expect(first.combined.prefix(12) != second.combined.prefix(12))

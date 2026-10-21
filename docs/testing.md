@@ -1,6 +1,6 @@
 # 构建与隔离测试
 
-本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#32](https://github.com/PerryFinn/random-thoughts/issues/32) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)，#29 的原生 output／SSE、配置与共享流程边界见 [responses-generation.md](responses-generation.md)，#30 的原生 Messages 内容块／thinking／SSE 边界见 [messages-generation.md](messages-generation.md)，#31 的完整输入、规模确认和受控并发见 [long-input-generation.md](long-input-generation.md)，#32 的配置竞争、取消、错误与手动重试见 [generation-lifecycle.md](generation-lifecycle.md)。
+本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#33](https://github.com/PerryFinn/random-thoughts/issues/33) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)，#29 的原生 output／SSE、配置与共享流程边界见 [responses-generation.md](responses-generation.md)，#30 的原生 Messages 内容块／thinking／SSE 边界见 [messages-generation.md](messages-generation.md)，#31 的完整输入、规模确认和受控并发见 [long-input-generation.md](long-input-generation.md)，#32 的配置竞争、取消、错误与手动重试见 [generation-lifecycle.md](generation-lifecycle.md)，#33 的内容删除、专用库迁移／重置与人工整体恢复见 [daily-report-storage-management.md](daily-report-storage-management.md)。
 
 ## 命令
 
@@ -451,3 +451,27 @@ code-review 固定起点为 `4db34140b5b229bf7d7daab0d7a995d91a13b91c`，按先�
 未删除完整源文件、数据库或用户数据，没有迁移、兼容入口、自动重试、第二套协议或生成档案。仅清理上述错误判定／提示的旧分支，所有调用方继续使用同一流程与传输入口。
 
 未执行：应用启动、旧宿主／UI 测试、真实 Codex／AI、真实端点限流／兼容性／语义／性能、系统睡眠唤醒、原生窗口／焦点／键盘／剪贴板、截图、macOS 26.5／Intel 运行或系统日志落盘。内容删除的具体存储操作由 #33 承接，三协议汇合／组合和授权系统验收仍由 #34–#36 承接；这些隔离结果不代表父 #20 整体验收。本次不推送、不关闭 Issue。
+
+## #33 内容管理与存储演进验证记录（2026-10-21）
+
+仅基于本地 `9d1f1f0d126d6b0e27bdcdd44fc22ccd2a5f5ce3` 实现 #33。先读 AGENTS、该票、父 #20 完整正文／评论、CONTEXT 与相关 ADR，核对本地 #28–#32 前置实现。只读核对远端 main 为 `123948d`，#33 原生阻塞项 #28 仍开放；本地实现不解除远端阻塞。保留并排除起始工程文件的两处键顺序改动。用户明确允许本票迁移日报专用库及旧密钥兼容，既有模型／蓝牙数据不迁移，不操作用户数据库。
+
+先更新 [存储管理契约](daily-report-storage-management.md) 及相邻文档，再逐步补删除、清空、迁移和重置的行为回归，亲检缺少动作／存储契约的失败输出后实现。测试复用生产 `DailyReportFlow` 动作／状态和真实 SQLite／CryptoKit；所有数据库、凭据及恢复副本均为独立临时合成数据。
+
+| 实际命令 | 结果 |
+| --- | --- |
+| `rtk proxy ./script/test-isolated.sh --filter 'ReportContentManagementTests|ReportStorageManagementTests|DailyReportLayoutTests'` | 3 个套件、25 项通过，含多组参数用例。 |
+| `rtk proxy ./script/test-isolated.sh` | 评审前全套 51 个套件、260 项通过；评审修复后的最终全套为 51 个套件、261 项通过，包含三协议、隐私及沙盒拒绝能力回归。 |
+| `rtk proxy ./script/build.sh` | `BUILD SUCCEEDED`，生产 arm64 Debug 纯构建；无新增 Swift 编译警告，仅既有 AppIntents 元数据跳过提示。 |
+
+- `ReportContentManagementTests`：单份确认覆盖共存草稿，范围变化使旧按钮无效；删除失败保留正文／草稿／候选选择，成功才清内存。清空列出全部时区与各类数量，保留设置／凭据，成功清全部快照和选择；关窗计数归零。排队旧编辑、取消后迟到生成成功、单份／全部删除与提交失败组合均不能写回；故障重置有独立确认且不访问网络。
+- `ReportStorageManagementTests`：真实 schema 1–4 逐级迁移、Markdown 原文与逻辑凭据版本保全、旧封装重加密、旧密钥读取、未知／认证错凭据只隔离对应配置。真实读锁阻止提交时删除及迁移回滚；失败重加密不改旧封装或版本。专用子进程在实际热 journal、迁移中断及重置三个阶段退出，验证 SQLite 正常恢复、独占锁、仅继续已确认重置和无旧库备份。停机整体复制／恢复合成目录能带回已删日报、旧 Key 与设置，来源未检查且无草稿恢复。
+- `DailyReportLayoutTests`：内容管理、删除／清空确认在最小布局下以无 NSWindow 的 `NSHostingView` 测量；危险按钮默认取消，具体控件保留启用／禁用指针样式。此结果不代表真实窗口或键盘验收。
+
+清理内容管理占位页、占位专用图标／摘要属性，以及直接拒绝所有历史 schema 的旧路径；存储锁移至统一目录所有权，全部调用方同步更新。未删除完整源文件或用户数据。测试子进程只删除各自临时日报库，生产删除／重置能力未对用户库执行；不新增导入、自动备份、永久删除账本或隐藏旧库副本。
+
+code-review 固定起点为 `9d1f1f0d126d6b0e27bdcdd44fc22ccd2a5f5ce3`，两个独立代理分别检查本票 31 个暂存文件，排除工程文件无关改动。Standards 初审为 1 项 P3：常规设置文档仍称 schema 4 及内容管理由后续票承接；同步后复核为 0 项规范违反、0 项可行动气味。Spec 初审为 1 项 P2：重置等待旧写入时，再次打开窗口会另起旧库加载并覆盖重置队列，旧快照可能回填正文或凭据。先补文档及 `.report`／`.settings` 两参数屏障回归，亲检重置后仍回填一份旧日报的失败输出，再限制提交期间只展示窗口、不另起存储加载；复核为 0 项未解决缺失、实现错误或范围扩张。
+
+`rtk proxy ./script/test-isolated.sh --filter 'ReportContentManagementTests|ReportStorageManagementTests|DailyReportWindowTests'` 为 3 个套件、22 项通过。修复后完整隔离入口 51 个套件、261 项通过，纯构建再次 `BUILD SUCCEEDED`，仅既有 AppIntents 工具提示；暂存空白检查通过。结束前只读核对远端 main 仍为 `123948d`，#33 和其原生阻塞项 #28 仍开放。
+
+未执行：应用启动、旧宿主／UI 测试、真实 Codex／AI、用户库迁移或重置、真实人工目录替换、Finder 打开、系统窗口／焦点／键盘／剪贴板／睡眠唤醒、截图、macOS 26.5／Intel 运行及系统日志落盘。#34–#36 的组合与授权验收、父 #20 整体验收仍未完成。本次不推送、不关闭 Issue。

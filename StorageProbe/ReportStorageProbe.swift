@@ -23,6 +23,10 @@ struct ReportStorageProbe {
     }
 
     private static func run(_ scenario: String, directory: URL) async throws {
+        if scenario.hasPrefix("management-") {
+            try await ReportStorageManagementProbe.run(scenario, directory: directory)
+            return
+        }
         if scenario == "hold-scan-lock" {
             guard let executable = ProcessInfo.processInfo.environment["RANDOM_THOUGHTS_CODEX_PROBE"] else { throw ProbeError.failed }
             try CodexScanLock.withLock(source: CodexSourceIdentity(executablePath: executable, dataDirectory: directory.path),
@@ -96,13 +100,13 @@ struct ReportStorageProbe {
             expected = .invalidData
         case "old-schema":
             try execute("PRAGMA user_version=1", at: url)
-            expected = .unsupportedVersion
+            expected = .invalidData
         case "source-old-schema":
             try execute("PRAGMA user_version=2", at: url)
-            expected = .unsupportedVersion
+            expected = .invalidData
         case "ai-old-schema":
             try execute("PRAGMA user_version=3", at: url)
-            expected = .unsupportedVersion
+            expected = .invalidData
         case "ai-missing-row":
             try execute("DELETE FROM ai_services WHERE protocol='responses'", at: url)
             expected = .invalidData

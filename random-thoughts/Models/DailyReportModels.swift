@@ -56,9 +56,18 @@ nonisolated struct ReportStorageSnapshot: Sendable {
     var aiServices: AIServiceSettings
 }
 
+nonisolated struct ReportContentCounts: Equatable, Sendable {
+    let saved: Int
+    let drafts: Int
+    let snapshots: Int
+}
+
 protocol DailyReportStorage: Actor {
+    var dataDirectory: URL? { get async }
     func load() async throws -> ReportStorageSnapshot
     func save(_ report: SavedDailyReport) async throws
+    func deleteReports(day: ReportDay?) async throws
+    func reset() async throws -> ReportStorageSnapshot
     func saveWindowSize(_ size: CGSize) async throws
     func saveGeneralSettings(_ settings: DailyReportGeneralSettings) async throws
     func saveCodexSource(_ settings: CodexDataSourceSettings) async throws
@@ -75,6 +84,8 @@ nonisolated enum ReportStorageError: Error, Sendable {
     case unsupportedVersion
     case recoveryRequired
     case writeFailed
+    case migrationFailed
+    case resetIncomplete
 
     var message: String {
         switch self {
@@ -84,6 +95,8 @@ nonisolated enum ReportStorageError: Error, Sendable {
         case .unsupportedVersion: "此日报数据库版本不受支持。请使用兼容版本打开，原数据已保留。"
         case .recoveryRequired: "日报目录包含待恢复状态，已停止创建或写入数据库。请先完成恢复。"
         case .writeFailed: "本地保存失败，已保存日报未改变。可以重试保存或复制 Markdown。"
+        case .migrationFailed: "日报格式升级未能提交，旧数据已保留。请检查权限、磁盘空间或使用兼容版本；依赖操作已停止。"
+        case .resetIncomplete: "已确认的日报重置尚未完成，旧数据可能已部分清除。依赖操作已停止；请修复权限或磁盘空间后继续重置。"
         }
     }
 }
@@ -92,6 +105,9 @@ nonisolated struct ReportConfirmation: Identifiable, Sendable {
     enum Kind: Sendable {
         case overwrite(ReportDay)
         case discard(ReportDay)
+        case deleteReport(ReportDay, window: AppWindowKind)
+        case clearReports
+        case resetData
         case close(UUID)
         case quit
         case settings(ReportSettingsContinuation)
@@ -117,10 +133,13 @@ nonisolated struct ReportConfirmation: Identifiable, Sendable {
     var generationContext: ReportGenerationContext? = nil
     var generationScale: ReportGenerationScale? = nil
     var isGenerating = false
+    var contentCounts: ReportContentCounts? = nil
+    var savedDays: [ReportDay] = []
 
     var windowKind: AppWindowKind {
         switch kind {
-        case .settings, .codexSettings, .aiSettings, .deleteAICredential, .validationExit: .settings
+        case .deleteReport(_, let window): window
+        case .settings, .codexSettings, .aiSettings, .deleteAICredential, .validationExit, .clearReports, .resetData: .settings
         default: .report
         }
     }

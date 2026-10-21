@@ -1,7 +1,7 @@
 import Foundation
 
 nonisolated struct AIServiceStorageEvent: Equatable, Sendable {
-    enum Operation: String, Sendable { case configuration, currentSelection, credentialDeletion }
+    enum Operation: String, Sendable { case configuration, currentSelection, credentialDeletion, reportDeletion, reportClear, reset }
     enum Result: String, Sendable { case success, failure }
     let operation: Operation
     let result: Result

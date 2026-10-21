@@ -1,6 +1,6 @@
 # 手写、保存与日报历史
 
-本切片实现 [#23](https://github.com/PerryFinn/random-thoughts/issues/23)，沿用父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 第 1、2、9、11、12 组及 ADR-0002／0003。常规设置及其草稿影响由 [#24](daily-report-settings.md) 接入；候选扫描与快照由 [#26](codex-session-scan.md) 接入，Chat Completions 直接生成由 [#28](chat-completions-generation.md) 接入；删除与重置由其他票承接，不做兼容或迁移。
+本切片实现 [#23](https://github.com/PerryFinn/random-thoughts/issues/23)，沿用父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 第 1、2、9、11、12 组及 ADR-0002／0003。常规设置及其草稿影响由 [#24](daily-report-settings.md) 接入；候选扫描与快照由 [#26](codex-session-scan.md) 接入，Chat Completions 直接生成由 [#28](chat-completions-generation.md) 接入；删除、清空、日报专用库迁移和重置见 [#33](daily-report-storage-management.md)。
 
 ## 流程接口与内存状态
 
@@ -26,7 +26,7 @@
 
 当前 schema 使用显式版本和真实 SQLite 事务，设置 `journal_mode=DELETE`、`synchronous=EXTRA`、`secure_delete=ON`。保存报告日、原始 Markdown、UTC 保存时间、可空最后编辑时间、正常窗口内容宽高、#24 的常规设置、[#25 的 Codex 数据源配置](codex-data-source.md) 及 [#27 的 AI 服务配置与凭据](ai-service-settings.md)。没有草稿、草稿基线、会话来源清单、恢复副本或生成档案。SQLite 管理正常 rollback journal。
 
-只有明确不存在主库且没有待恢复事务或重置意图时才初始化。打开、权限、字段、schema 或版本错误保留原数据并停止操作，不静默创建空库；schema 校验包含必填列和报告日复合主键，读取时拒绝重复报告日。本轮不实现升级、迁移、删除或重置，#33 承接完整验收。错误向界面和遥测只提供固定类别，不输出正文、路径或 SQLite 原始错误。
+只有明确不存在主库且没有待恢复事务或重置意图时才初始化。打开、权限、字段、schema 或版本错误保留原数据并停止操作，不静默创建空库；schema 校验包含必填列和报告日复合主键，读取时拒绝重复报告日。#33 接入受支持旧格式的事务迁移和已确认重置中断续行。错误向界面和遥测只提供固定类别，不输出正文、路径或 SQLite 原始错误；部分重置失败不声称原数据完整。
 
 正常尺寸进入同一数据库；只记录非最小化、非全屏的内容尺寸，以最新收到的尺寸去重并按顺序写入，快速调回先前尺寸也保留最终值。退出等待已收到的尺寸队列完成；等待期间出现新草稿时仍须确认，不提前终止进程。返回编辑或取消现有确认时，等待中的退出也随之取消，旧任务完成后不能重新触发退出；确认已结束后的迟到取消回调无效。重新打开时限制到主显示器可见区域并居中，不保存位置或其他恢复状态。小于最小窗口的显示区域优先保证窗口可见。
 

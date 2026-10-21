@@ -35,7 +35,7 @@ struct DailyReportTelemetry {
 
     func storageFinished(_ event: AIServiceStorageEvent) {
         emit(format: "report_storage_finished operation=%@ result=%@ schema=%d credential_format=%d",
-             text: "report_storage_finished operation=\(event.operation.rawValue) result=\(event.result.rawValue) schema=4 credential_format=1",
+             text: "report_storage_finished operation=\(event.operation.rawValue) result=\(event.result.rawValue) schema=5 credential_format=2",
              event: .storage)
     }
 

@@ -52,6 +52,8 @@ final class AppWindowCoordinator: NSObject, NSWindowDelegate {
             }
         case .quit:
             NSApplication.shared.terminate(nil)
+        case .openReportDataDirectory(let directory):
+            NSWorkspace.shared.open(directory)
         }
     }
 
