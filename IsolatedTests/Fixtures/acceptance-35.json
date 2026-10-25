@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "seed": 35,
+  "reportDate": "2026-10-20",
+  "timeZone": "Etc/UTC",
+  "codexPrompts": [
+    {
+      "placement": "current",
+      "prompt": "这是纯合成验收材料，不访问文件或工具。合成事实：今天完成了 SYNTH35 文档草案，测试尚未执行，发布结果未确认。请仅复述这三项事实，不补充成果、数字或计划。",
+      "allowedFacts": ["SYNTH35 文档草案完成", "测试尚未执行", "发布结果未确认"],
+      "forbiddenConclusions": ["测试通过", "发布完成", "真实项目已经交付"]
+    },
+    {
+      "placement": "archived",
+      "prompt": "Synthetic acceptance only. Do not use files or tools. Today's synthetic facts: the SYNTH35 draft document is complete; validation has not run; publication is unconfirmed. Repeat only these facts. Do not invent completion, metrics, or next steps.",
+      "allowedFacts": ["The synthetic draft document is complete", "Validation has not run", "Publication is unconfirmed"],
+      "forbiddenConclusions": ["Validation passed", "Publication succeeded", "Real project delivery is complete"]
+    }
+  ],
+  "editorMarkdown": "## 今日概览\n- SYNTH35：仅合成验收正文。Synthetic text, é, 👩🏽‍💻。\n\n## 完成事项\n- 已完成合成文档草案。\n\n## 关键产出\n- `SYNTH35-draft.md`，不是生产发布物。\n\n## 决策与思考\n- 采用离线合成材料，不访问真实工作内容。\n\n## 问题与风险\n- 测试尚未执行，发布结果未确认。\n- 手写标记：SYNTH35-HANDWRITTEN-ONLY，保存和复制应原样保留。\n- 远程图片字面量：![synthetic](https://acceptance.invalid/SYNTH35-image.png)\n- HTML 字面量：<script>throw 'SYNTH35-script-must-not-run'</script>\n\n## 明日计划\n无明确内容\n\n```swift\nlet synthetic = \"SYNTH35\"\n```\n",
+  "longParagraph": "仅合成长正文 SYNTH35；文档草案完成，验证未执行，发布未确认。Synthetic evidence stays synthetic. Unicode: é / 👩🏽‍💻 / 中文。代码：`let value = 35`。本段用于滚动和原样复制，不表示真实工作已经完成。\n\n",
+  "longParagraphRepeats": 80,
+  "scales": [
+    { "name": "small", "sessions": 10, "turns": 100, "utf8Bytes": 1048576, "oversizedTurnBytes": 0 },
+    { "name": "medium", "sessions": 100, "turns": 1000, "utf8Bytes": 10485760, "oversizedTurnBytes": 2097152 },
+    { "name": "large", "sessions": 1000, "turns": 10000, "utf8Bytes": 104857600, "oversizedTurnBytes": 2097152 }
+  ]
+}

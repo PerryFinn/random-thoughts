@@ -1,8 +1,37 @@
 # 构建与隔离测试
 
-本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#34](https://github.com/PerryFinn/random-thoughts/issues/34) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)，#29 的原生 output／SSE、配置与共享流程边界见 [responses-generation.md](responses-generation.md)，#30 的原生 Messages 内容块／thinking／SSE 边界见 [messages-generation.md](messages-generation.md)，#31 的完整输入、规模确认和受控并发见 [long-input-generation.md](long-input-generation.md)，#32 的配置竞争、取消、错误与手动重试见 [generation-lifecycle.md](generation-lifecycle.md)，#33 的内容删除、专用库迁移／重置与人工整体恢复见 [daily-report-storage-management.md](daily-report-storage-management.md)。
+本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#35](https://github.com/PerryFinn/random-thoughts/issues/35) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)，#29 的原生 output／SSE、配置与共享流程边界见 [responses-generation.md](responses-generation.md)，#30 的原生 Messages 内容块／thinking／SSE 边界见 [messages-generation.md](messages-generation.md)，#31 的完整输入、规模确认和受控并发见 [long-input-generation.md](long-input-generation.md)，#32 的配置竞争、取消、错误与手动重试见 [generation-lifecycle.md](generation-lifecycle.md)，#33 的内容删除、专用库迁移／重置与人工整体恢复见 [daily-report-storage-management.md](daily-report-storage-management.md)。
 
 隐私出口、精确日志白名单和父规格最低覆盖矩阵见 [daily-report-privacy.md](daily-report-privacy.md)。
+
+[#35 验收准备](acceptance/issue-35/README.md) 提供人工清单、纯合成材料及[记录模板](acceptance/issue-35/record-template.md)。本轮只验证材料和既有隔离行为；真实 Codex、原生交互、截图、性能及包体实测仍未完成，不能据此声明 #35 或父规格验收通过。
+
+## #35 验收准备记录（2026-10-25）
+
+基于本地 `c74eb42c4050f69e742c4aed56c8f5e5f703f2fd`，只准备清单、合成材料与记录模板，不改生产代码或存储契约。已读 AGENTS、#35 与父 #20 的完整正文／评论、CONTEXT 和三份 ADR；本地 #29–#34 提交均为基线祖先。只读查询远端 main 为 `123948d`，#35 仍被开放的 #34 阻塞，#34 的 #29／#30／#32／#33 也仍开放。本地准备不解除远端阻塞，不操作 Issue 状态。
+
+实测构建环境：Apple M3 Max、36GiB、macOS 27.0.1（26A434）、Xcode 27.1（27A9275）、Swift 6.4（swiftlang-6.4.0.34.1）、arm64。此处是构建／隔离环境记录，不代表当前系统或最低 macOS 26.5 的原生交互验收。
+
+`acceptance-35.json` 完全手工合成，版本 1、种子 35；包含当前／归档会话的正常交互提示词、允许事实与禁止结论、UI Markdown 和压力规模定义。测试专用 `ReportAcceptanceMaterials` 生成生产候选／工作轮次值；三档严格为 10／100／1MiB、100／1000／10MiB、1000／10000／100MiB，中大首轮 2MiB，UTF-8 总量包含用户及最终回复正文。只生成测试内存材料，不构造真实 Codex 私有文件，不将压力材料外发。
+
+| 实际命令 | 结果 |
+| --- | --- |
+| `rtk proxy ./script/test-isolated.sh --configuration Debug --filter ReportAcceptanceMaterialTests`（首次） | 1 项测试实际执行，因缺少材料资源的 `#require` 失败，退出 1；加入纯合成定义后通过。 |
+| 同一材料定向命令（最终） | 1 个套件、3 项通过：定义与规格规模、全部规模／精确字节／Unicode／稳定重建、统一流程扫描确认与快照保持；无真实 Codex／AI 请求。 |
+| `rtk proxy ./script/build.sh --configuration Debug` | `BUILD SUCCEEDED`，生产 arm64 Debug 纯构建。 |
+| `rtk proxy ./script/build.sh --configuration Release` | `BUILD SUCCEEDED`，生产 arm64 Release 纯构建。 |
+| `rtk proxy ./script/test-isolated.sh --configuration Debug` | 53 个套件、269 项通过。 |
+| `rtk proxy ./script/test-isolated.sh --configuration Release`（首次） | 53 个套件、269 项中 1 项失败：既有 `AIHTTPTests.aLegalStreamTerminatorCompletesWithoutWaitingForTheConnectionToClose(.messages)` 抛出假服务 `.setup`；退出 1，不能记通过。 |
+| `rtk proxy ./script/test-isolated.sh --configuration Release --filter 'AIHTTPTests.aLegalStreamTerminatorCompletesWithoutWaitingForTheConnectionToClose'` | 定向复测 1 项、3 个协议参数全部通过；未修改生产代码或原有 HTTP 测试。 |
+| `rtk proxy ./script/test-isolated.sh --configuration Release`（复跑） | 53 个套件、269 项全部通过，退出 0；首次 `.setup` 失败记录保留，具体底层原因未确认。 |
+
+新增生成器测试先因尚无 `makeSessions` 接口编译失败；这是缺接口证据，不当作行为红绿证据。材料缺失的实际断言失败与其后通过单独记录。构建无 Swift 编译警告，保留既有 CoreDevice 插件／CoreSimulator 环境诊断和 AppIntents 元数据跳过提示；未安装组件或改变系统设置。
+
+Release 首次失败属于本机回环假服务创建阶段；现有 `.setup` 没有保存底层 errno，不能断言具体是端口冲突或产品传输错误。定向复测通过后补跑一次 Release 全套，首次失败仍保留。完整运行中的阶段测试时间不作为性能实测。
+
+code-review 固定起点为 `c74eb42`，先评审暂存的 6 个本票文件，再本地提交。Standards 为 0 项规范违反／可行动气味；Spec 初审发现 1 项 P2：模板混淆同进程重开窗口与重新启动应用的数据源状态。已拆为 C-06（重开不恢复快照、不自动重扫）与 C-07（重启回到未检查、无自动请求），复核后 Spec 为 0 项未解决缺失／错误／范围扩张。既有 `project.pbxproj` 两处排序变化保留并排除，SHA-256 仍为 `ae1aa7492c840053d3114b948f5437dc66323aee0fac302c326184e090ad6c1b`。没有删除现有代码、文件、数据库或用户数据，没有新增迁移、兼容路径、生产调试开关或运行档案。
+
+未执行：生产应用启动、旧宿主／UI 测试、真实 Codex 版本检查／会话建立／读取、真实 AI、用户数据库操作、原生窗口／快捷键／Dock／登录启动／显示器改变／睡眠唤醒／系统剪贴板、截图、macOS 26.5 或当前开发系统人工验收、OSLog 实际落盘、扫描／双编码／规划／调度性能及最终 App 包体增量。完整性能 runner 尚未准备；模板中的所有实测项保持未完成。#36 的 48 任务语义验收未执行，#35 和父 #20 均未完成；不推送、不关闭票。
 
 ## #34 隐私汇合与双配置验证记录（2026-10-25）
 
