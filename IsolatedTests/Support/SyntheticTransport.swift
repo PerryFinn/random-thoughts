@@ -2,10 +2,11 @@ import Foundation
 import Synchronization
 
 final class SyntheticTransport: Sendable {
-    let endpoint = URL(string: "https://\(UUID().uuidString).fixture.invalid/points")!
+    let endpoint: URL
     let session: URLSession
 
-    init() {
+    init(endpoint: URL = URL(string: "https://\(UUID().uuidString).fixture.invalid/points")!) {
+        self.endpoint = endpoint
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [SyntheticURLProtocol.self]
         configuration.urlCache = nil

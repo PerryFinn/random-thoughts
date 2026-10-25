@@ -1,7 +1,7 @@
 import Foundation
 @testable import random_thoughts
 
-actor BatchAIService: AIServiceAccess {
+actor BatchAIService {
     enum Mode: String, Sendable {
         case compact, dense, missingCoverage, duplicateCoverage, invalidReference, wrongTurn
         case partialCompletion, oversized, malformed, duplicateFields, eraseOnMerge, unreduced, noRelevant, privateSummary
@@ -101,3 +101,5 @@ actor BatchAIService: AIServiceAccess {
         }
     }
 }
+
+extension BatchAIService: AIServiceAccess {}

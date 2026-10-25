@@ -1,7 +1,7 @@
 import Foundation
 @testable import random_thoughts
 
-actor ControlledAIService: AIServiceAccess {
+actor ControlledAIService {
     private(set) var requests: [AIRequest] = []
     private var results: [Result<String, any Error>] = []
     private var holdsNext = false
@@ -30,3 +30,5 @@ actor ControlledAIService: AIServiceAccess {
         return request.schema == nil ? "OK" : #"{"ok":"OK"}"#
     }
 }
+
+extension ControlledAIService: AIServiceAccess {}

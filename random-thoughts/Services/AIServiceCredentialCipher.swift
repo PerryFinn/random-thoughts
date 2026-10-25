@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-protocol AICredentialAccess: Sendable {
+nonisolated protocol AICredentialAccess: Sendable {
     func seal(_ credential: String) async throws -> AICredentialEnvelope
     func open(_ envelope: AICredentialEnvelope) async throws -> String
 }

@@ -15,7 +15,7 @@ nonisolated struct AIRequest: Sendable {
     var additionalInputs: [String] = []
 }
 
-protocol AIServiceAccess: Sendable {
+nonisolated protocol AIServiceAccess: Sendable {
     nonisolated func execute(_ request: AIRequest) async throws -> String
 }
 

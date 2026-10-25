@@ -134,7 +134,7 @@ nonisolated struct CodexCheckEvent: Equatable, Sendable {
     let version: CodexVersion?
 }
 
-protocol CodexSourceAccess: Sendable {
+nonisolated protocol CodexSourceAccess: Sendable {
     func resolve(_ configuration: CodexDataSourceConfiguration, rediscover: Bool) async -> CodexSourceSelection
     func check(_ source: CodexSourceIdentity) async throws -> CodexVersion?
     func scan(_ source: CodexSourceIdentity, day: ReportDay, progress: @escaping @Sendable (CodexScanActivity) -> Void) async throws -> CodexSessionScan

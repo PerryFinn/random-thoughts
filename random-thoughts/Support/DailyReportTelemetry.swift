@@ -52,7 +52,7 @@ struct DailyReportTelemetry {
         case .stageChanged: event = .generationStage
         case .finished: event = .generationFinished
         }
-        emit(format: "report_generation event=%@ path=%@ stage=%@ result=%@ input_tokens=%d reason=%@ plan_min=%d plan_max=%d layer=%d completed=%d in_flight=%d tokenizer=0.12.1",
+        emit(format: "\(event.rawValue) path=%@ stage=%@ result=%@ input_tokens=%d reason=%@ plan_min=%d plan_max=%d layer=%d completed=%d in_flight=%d tokenizer=0.12.1",
              text: "\(value.kind.rawValue) path=\(value.path.rawValue) stage=\(value.stage.rawValue) result=\(value.result.rawValue) input_tokens=\(value.inputTokens) reason=\(value.error?.rawValue ?? "none") plan_min=\(value.scale?.minimumRequests ?? 0) plan_max=\(value.scale?.maximumRequests ?? 0) layer=\(value.layer) completed=\(value.completedRequests) in_flight=\(value.inFlightRequests) tokenizer=0.12.1",
              event: event)
     }

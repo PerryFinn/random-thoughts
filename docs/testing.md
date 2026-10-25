@@ -1,18 +1,54 @@
 # 构建与隔离测试
 
-本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#33](https://github.com/PerryFinn/random-thoughts/issues/33) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)，#29 的原生 output／SSE、配置与共享流程边界见 [responses-generation.md](responses-generation.md)，#30 的原生 Messages 内容块／thinking／SSE 边界见 [messages-generation.md](messages-generation.md)，#31 的完整输入、规模确认和受控并发见 [long-input-generation.md](long-input-generation.md)，#32 的配置竞争、取消、错误与手动重试见 [generation-lifecycle.md](generation-lifecycle.md)，#33 的内容删除、专用库迁移／重置与人工整体恢复见 [daily-report-storage-management.md](daily-report-storage-management.md)。
+本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#34](https://github.com/PerryFinn/random-thoughts/issues/34) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)，#29 的原生 output／SSE、配置与共享流程边界见 [responses-generation.md](responses-generation.md)，#30 的原生 Messages 内容块／thinking／SSE 边界见 [messages-generation.md](messages-generation.md)，#31 的完整输入、规模确认和受控并发见 [long-input-generation.md](long-input-generation.md)，#32 的配置竞争、取消、错误与手动重试见 [generation-lifecycle.md](generation-lifecycle.md)，#33 的内容删除、专用库迁移／重置与人工整体恢复见 [daily-report-storage-management.md](daily-report-storage-management.md)。
+
+隐私出口、精确日志白名单和父规格最低覆盖矩阵见 [daily-report-privacy.md](daily-report-privacy.md)。
+
+## #34 隐私汇合与双配置验证记录（2026-10-25）
+
+基线为本地 `a62e7ec`。本机为 Apple Silicon、macOS 27.0.1（26A434）、Xcode 27.1（27A9275）、Swift 6.4（swiftlang-6.4.0.34.1）；系统默认仍选择 Command Line Tools，两个脚本各自指定 Xcode，不改全局选择。
+
+已读 #34、父 #20 完整正文／评论及领域文档。本地 #29／#30／#31／#32／#33 的提交均为基线祖先；结束前只读复核远端 main 仍为 `123948d`，#34 及原生阻塞项 #29／#30／#32／#33 仍开放。本地完成不解除远端阻塞。保留并排除起始工程文件的键顺序改动，SHA-256 与起始一致。
+
+核对两份 `Package.resolved`：CocoaLumberjack 3.10.0（`b75d3c3198a2930b4491b04fd47cb504b359c750`）、swift-log 1.16.1（`4038b6a4f74a1426f47eb1dd5b4bb5628a15d597`）。核对该 checkout 的 `DDOSLogger.m`：固定 subsystem/category 创建 OSLog，最终文本通过 `%{public}s` 输出；生产 `DailyReportTelemetry.makeSystemLog()` 只注册一个无 formatter 的 `DDOSLogger`。业务入口为专用事件类型，实际完整消息由独立日志实例捕获测试约束；不把框架 flush 等同于系统落盘。
+
+只读核查日报存储和网络路径：单库及必要事务文件、不写草稿／来源／中间事实档案；传输创建无缓存／Cookie／凭据存储的会话，重定向回调拒绝目标，无自动重发或服务切换；预览使用 `SafeMarkdown`／`AttributedString`／`Text`，无 WebView 或自动资源加载。合成 stdio 的输入夹具位于测试目录，数据库置于独立子目录，避免把夹具本身误判为产品生成的副本。
+
+| 实际命令／检查 | 结果 |
+| --- | --- |
+| `rtk proxy ./script/test-isolated.sh --configuration Debug --filter everyTypedEventConformsToTheExactPublicWhitelist` | 真正执行后，三个生成事件的 `messageFormat` 精确断言失败；改为三个固定事件模板后通过，并纳入以下定向及全套回归。 |
+| `rtk proxy ./script/test-isolated.sh --configuration Debug --filter 'Privacy\|DailyReportTelemetryTests\|AIHTTPTests'` | 9 个套件、29 项测试通过，包含参数化三协议／直接与分批／遮盖失败／原始 stdio 及可缓存 GET。 |
+| `rtk proxy ./script/build.sh --configuration Debug` | `BUILD SUCCEEDED`，仅 arm64 Debug 生产应用纯构建。 |
+| `rtk proxy ./script/build.sh --configuration Release` | `BUILD SUCCEEDED`，仅 arm64 Release 生产应用纯构建。 |
+| `rtk proxy ./script/test-isolated.sh --configuration Debug` | 52 个套件、266 项测试通过，沙盒内完整 U/I/L／隐私回归。 |
+| `rtk proxy ./script/test-isolated.sh --configuration Release` | 52 个套件、266 项测试通过，Release Swift `-O`／整模块优化与对应产物；不是仅优化 Rust 内核。 |
+| 构建脚本参数探针（替换 `xcodebuild` 为只检查参数的合成接收器） | 改前请求 Release 实际传 Debug，退出 1；改后实际传 Release，退出 0。探针未调用 Xcode，不是生产构建证据。 |
+| `rtk proxy bash -n script/build.sh script/test-isolated.sh` | 通过。 |
+| `rtk proxy ./script/test-isolated.sh --configuration invalid` | 按预期在构建前退出 2。 |
+
+初始环境曾因 Xcode 许可退出 69，未执行测试；用户接受当前协议后继续。Swift 6.4 编译暴露默认 MainActor 协议及跨文件 actor 推导问题，按[隐私契约](daily-report-privacy.md)明确外部协议并在替身扩展中声明遵守；隔离脚本改用当前 swiftbuild 的测试包。首次 Release 隔离构建缺少 `@testable` 可见性而失败，加入仅隔离构建的 `-enable-testing` 后完整通过。这些编译失败均不当作行为红绿证据。
+
+两次生产构建没有 Swift 编译警告；Xcode 输出 CoreDevice 插件缺失符号、CoreSimulator 组件版本落后的环境诊断，以及既有的 AppIntents 元数据跳过提示，macOS 目标均完成构建。未为处理这些诊断安装组件或修改系统配置。
+
+code-review 固定起点为 `a62e7ec`，按用户要求先评审后提交，由两个独立代理分别检查本票暂存差异，排除工程文件无关变化。Standards 初审纠正剪贴板保留的文档分类；Spec 初审纠正单份删除应保留确认快照的测试断言，清空全部内容才删除所有快照。修正后双配置完整隔离回归通过；代码复核为 Standards 0 项规范违反／可行动气味、Spec 0 项缺失／实现错误／范围扩张。
+
+清理了旧通用生成日志 format 和旧 SwiftPM 测试包路径假设；未删除完整产品文件、数据库或用户数据，没有新增迁移、兼容入口、生成档案、自动备份或重试。
+
+未执行应用启动、旧生产宿主／UI 测试、真实 Codex／AI、用户数据库操作、OSLog 实际落盘检查、macOS 26.5 人工验收、真实组合语义或性能验收。#35／#36 的人工／系统／真实机制验收仍未完成；本记录不声明整个父规格验收通过。
 
 ## 命令
 
 在仓库根目录运行：
 
 ```bash
-./script/build.sh
-./script/test-isolated.sh
+./script/build.sh --configuration Debug
+./script/build.sh --configuration Release
+./script/test-isolated.sh --configuration Debug
+./script/test-isolated.sh --configuration Release
 ./script/test-isolated.sh --filter IntelligenceIsolationTests
 ```
 
-`build.sh` 仅调用 Xcode 的 `build`，产物位于 `.build/DerivedData`，不运行旧启动脚本，也不终止已运行的应用。隔离入口先用 SwiftPM 编译测试，再在 macOS 沙盒内执行 Swift Testing 测试程序；支持 Swift Testing 的 `--filter` 参数。它没有应用可执行产品、生产 `TEST_HOST` 或生产入口初始化。
+`build.sh` 仅调用 Xcode 的 `build`，产物位于 `.build/DerivedData`，不运行旧启动脚本，也不终止已运行的应用。隔离入口先用 SwiftPM 的 `swiftbuild` 构建系统编译测试，并加载它生成的 `IsolatedTests.xctest`，再在 macOS 沙盒内执行 Swift Testing 测试程序；默认 Debug；`--configuration Debug|Release` 同时选择 Swift 编译和测试产物，支持 Swift Testing 的 `--filter` 参数。隔离构建显式传 `-enable-testing` 以供现有 `@testable` 接口使用，Release 仍使用 `-O`／整模块优化；该选项不进入生产应用纯构建。它没有应用可执行产品、生产 `TEST_HOST` 或生产入口初始化。
 
 macOS 的 `.xctest` 是加载包，脚本用当前工具链的 `swiftpm-testing-helper` 加载它，调用方式依据 [Swift Testing 官方说明](https://github.com/swiftlang/swift-testing/blob/main/Documentation/CommandlineDebugging.md)。沙盒只允许执行该加载器、#23 的 `ReportStorageProbe` 和 #25 的 `SyntheticCodexServer`。两个替身仅接收本次临时根目录内的合成数据库或协议夹具，用于真实 SQLite／stdio 机制验证，不是应用或 Codex 入口。stdio stderr 丢弃到 `/dev/null`，沙盒仅为此放行该空设备，其他文件写入仍限于临时根目录。
 

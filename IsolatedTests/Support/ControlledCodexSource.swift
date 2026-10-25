@@ -1,7 +1,7 @@
 import Foundation
 @testable import random_thoughts
 
-actor ControlledCodexSource: CodexSourceAccess {
+actor ControlledCodexSource {
     private(set) var scanCount = 0
     private var sessionScan = CodexSessionScan(sessions: [], failures: [], version: nil)
     private var holdsNextScan = false
@@ -71,3 +71,5 @@ actor ControlledCodexSource: CodexSourceAccess {
         heldCheck = nil
     }
 }
+
+extension ControlledCodexSource: CodexSourceAccess {}

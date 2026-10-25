@@ -74,6 +74,7 @@ struct ReportBatchPrivacyTests {
         log.flushLog()
         let messages = memory.snapshot()
         let forbiddenLog = forbiddenDisk + ["PREFERENCES_PRIVATE_31", "ENDPOINT_PRIVATE_31", "QUERY_PRIVATE_31", "MODEL_PRIVATE_31", environment.credentialKey.base64EncodedString()]
+        try expectOnlyWhitelistedTelemetry(messages, forbidden: forbiddenLog)
         #expect(messages.contains { $0.message.contains("path=batched") && $0.message.contains("result=success") })
         #expect(messages.contains { $0.message.contains("result=failure") })
         #expect(messages.contains { $0.message.contains("result=cancelled") })

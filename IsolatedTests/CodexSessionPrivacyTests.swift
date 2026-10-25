@@ -5,6 +5,34 @@ import Testing
 
 @MainActor
 struct CodexSessionPrivacyTests {
+    @Test(arguments: ["handshake", "malformed", "read"])
+    func rawStdioAndServerFailuresProduceOnlyFixedLogFields(_ scenario: String) async throws {
+        let environment = try IsolatedTestEnvironment(); defer { environment.close() }
+        let reader = try scanReader(environment, fixture: ["scenario": scenario])
+        let source = try scanIdentity(environment)
+        let database = DailyReportDatabase(directory: environment.directory.appendingPathComponent("storage"))
+        _ = try await database.load()
+        try await database.saveCodexSource(.init(configuration: .init(mode: .manual,
+            executablePath: source.executablePath, explicitDirectory: source.dataDirectory), resolvedDirectory: source.dataDirectory))
+        let log = DDLog(), memory = MemoryWindowLogger(); log.add(memory)
+        let telemetry = DailyReportTelemetry(log: log)
+        let flow = DailyReportFlow(storage: database, aiCredentials: AIServiceCredentialCipher(key: environment.credentialKey),
+            aiAccess: ControlledAIService(), reportTokenizer: OfflineReportTokenizer(), codexSourceAccess: reader,
+            now: { environment.clock.now }, timeZone: .gmt, performWindowEffect: { _ in }, performContextEffect: { _ in },
+            recordWindowMode: { _ in }, recordCodexCheck: { telemetry.codexCheckFinished($0) },
+            recordSessionScan: { telemetry.sessionScanFinished($0) }, recordAIStorage: { telemetry.storageFinished($0) },
+            recordAIValidation: { _ in }, recordGeneration: { _ in }, redactCredentials: CredentialRedaction.redact, copyText: { _ in })
+        flow.send(.open(.settings)); await flow.waitForStorage()
+        flow.send(.requestSettingsPage(.dataSource)); flow.send(.saveCodexSource)
+        await flow.waitForStorage(); await flow.waitForCodexCheck()
+        log.flushLog()
+        let messages = memory.snapshot()
+        #expect(messages.contains { $0.function == "codex_check_finished" && $0.message.contains("result=failure") })
+        try expectOnlyWhitelistedTelemetry(messages, forbidden: ["STDERR_SECRET_25", "STDOUT_SECRET_25", "ERROR_SECRET_25",
+            "RAW_SECRET_25", "NOTIFICATION_SECRET_25", source.executablePath, source.dataDirectory])
+        await database.close()
+    }
+
     @Test func realWireThroughTheFlowKeepsSnapshotsOutOfSQLitePreferencesAndLogObjects() async throws {
         let environment = try IsolatedTestEnvironment()
         defer { environment.close() }
@@ -54,6 +82,7 @@ struct CodexSessionPrivacyTests {
             #expect(markers.allSatisfy { !preferences.contains($0) })
             log.flushLog()
             let messages = memory.snapshot()
+            try expectOnlyWhitelistedTelemetry(messages, forbidden: markers + ["STDERR_SECRET_25", "STDOUT_SECRET_25", "ERROR_SECRET_25", "RAW_SECRET_25", "USER_AGENT_SECRET_25"])
             #expect(messages.map(\.message) == ["session_scan_finished result=complete candidates=1 succeeded=1 failed=0"])
             for message in messages {
                 #expect(markers.allSatisfy { !message.message.contains($0) && !message.file.contains($0) && !(message.function ?? "").contains($0) })

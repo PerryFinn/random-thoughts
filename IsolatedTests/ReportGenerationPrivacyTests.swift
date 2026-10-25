@@ -76,6 +76,7 @@ struct ReportGenerationPrivacyTests {
         log.flushLog()
         let messages = memory.snapshot()
         let forbiddenLog = forbiddenDisk + ["PREFERENCES_PRIVATE_28", "ENDPOINT_PRIVATE_28", "QUERY_PRIVATE_28", "MODEL_PRIVATE_28", original, environment.credentialKey.base64EncodedString()]
+        try expectOnlyWhitelistedTelemetry(messages, forbidden: forbiddenLog)
         #expect(messages.contains { $0.function == "ai_validation_finished" })
         #expect(messages.contains { $0.function == "report_generation_finished" })
         for message in messages {

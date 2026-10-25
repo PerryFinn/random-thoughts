@@ -70,6 +70,7 @@ struct AIServicePrivacyTests {
         ])
         let forbidden = ["SYNTHETIC_LOG_", "ENDPOINT_SECRET_27", "QUERY_SECRET_27", "MODEL_SECRET_27",
                          envelope.combined.base64EncodedString(), environment.credentialKey.base64EncodedString()]
+        try expectOnlyWhitelistedTelemetry(messages, forbidden: forbidden)
         for message in messages {
             #expect(forbidden.allSatisfy { !message.message.contains($0) && !message.messageFormat.contains($0) })
             #expect(message.file == "DailyReports" && message.function == "report_storage_finished")

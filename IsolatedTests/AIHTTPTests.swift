@@ -5,6 +5,25 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct AIHTTPTests {
+    @Test func evenCacheableGETResponsesCannotPopulateAnInjectedDiskCache() async throws {
+        let environment = try IsolatedTestEnvironment(); defer { environment.close() }
+        let server = try LoopbackChatServer(); defer { server.close() }
+        let cache = URLCache(memoryCapacity: 1_048_576, diskCapacity: 1_048_576,
+            directory: environment.directory.appendingPathComponent("request-cache"))
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = cache
+        let access = AIHTTPTransport(configuration: configuration, time: .production)
+        let lookup = URLRequest(url: server.endpoint)
+        let operation = Task { try await access.send(lookup, stream: nil, service: .chatCompletions) }
+        _ = try await server.request()
+        let response = completion("CACHE_RESPONSE_PRIVATE_34")
+        try server.respond(response, fields: ["Cache-Control": "public, max-age=3600", "Content-Location": server.endpoint.absoluteString])
+        #expect(try await operation.value == response)
+        #expect(cache.cachedResponse(for: lookup) == nil)
+        #expect(cache.currentMemoryUsage == 0 && cache.currentDiskUsage == 0)
+        #expect(configuration.urlCache === cache)
+    }
+
     @Test(arguments: AIServiceType.allCases)
     func nonstreamingErrorObjectsPreserveReliableWaitEvidence(_ service: AIServiceType) async throws {
         let environment = try IsolatedTestEnvironment(); defer { environment.close() }

@@ -80,6 +80,8 @@ struct ResponsesPrivacyTests {
         }
         log.flushLog()
         let messages = memory.snapshot(), probes = messages.filter { $0.function == "ai_validation_finished" }
+        try expectOnlyWhitelistedTelemetry(messages, forbidden: forbidden + ["PREFERENCES_PRIVATE_29", "MODEL_PRIVATE_29",
+            environment.transport.endpoint.absoluteString, environment.credentialKey.base64EncodedString(), payload, flow.body])
         #expect(probes.count == 3 && probes.allSatisfy { $0.message.contains("service=responses") })
         for message in messages {
             let secrets = forbidden + ["PREFERENCES_PRIVATE_29", "MODEL_PRIVATE_29", environment.transport.endpoint.absoluteString,

@@ -5,6 +5,25 @@ import Testing
 
 @MainActor
 struct DailyReportTelemetryTests {
+    @Test func everyTypedEventConformsToTheExactPublicWhitelist() throws {
+        let log = DDLog(), memory = MemoryWindowLogger(); log.add(memory)
+        let telemetry = DailyReportTelemetry(log: log)
+        telemetry.windowModeChanged(.foreground)
+        telemetry.codexCheckFinished(.init(result: .success, error: nil, version: CodexVersion("9.8.7")))
+        telemetry.sessionScanFinished(.init(result: .partial, candidates: 3, succeeded: 2, failed: 1))
+        telemetry.storageFinished(.init(operation: .reportClear, result: .success))
+        telemetry.validationFinished(.init(service: .messages, stage: .structured, result: .success, capability: .supported))
+        for kind: ReportGenerationEvent.Kind in [.started, .stageChanged, .finished] {
+            telemetry.generationChanged(.init(kind: kind, stage: .composing, result: .success, inputTokens: 120,
+                error: nil, path: .batched, scale: .init(minimumRequests: 3, maximumRequests: 5, extractionRequests: 2, mergeLayers: 1),
+                layer: 1, completedRequests: 4, inFlightRequests: 1))
+        }
+        log.flushLog()
+        #expect(memory.snapshot().count == 8)
+        try expectOnlyWhitelistedTelemetry(memory.snapshot())
+        #expect(memory.logFormatter == nil)
+    }
+
     @Test func scanTelemetryContainsOnlyOutcomesAndAggregateCounts() {
         let log = DDLog()
         let memory = MemoryWindowLogger()
