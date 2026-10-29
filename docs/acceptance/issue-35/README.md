@@ -1,8 +1,10 @@
 # #35 验收准备
 
-依据 [#35](https://github.com/PerryFinn/random-thoughts/issues/35)、父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的实现决策 2／3／7／9–13 与测试决策 2／3／5／6，以及根 CONTEXT 和 ADR-0001／0002／0003。这里只准备验收，不改变产品契约。
+依据 [#35](https://github.com/PerryFinn/random-thoughts/issues/35)、父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的实现决策 2／3／7／9–13 与测试决策 2／3／5／6，以及根 CONTEXT 和 ADR-0001／0002／0003。本目录保存验收清单、合成材料说明、空白人工模板及离线测量记录，不改变产品契约。
 
-## 当前边界与前置
+2026-10-30 已完成本轮授权的三档离线性能、硬约束及完整 App 包体增量实测，见[离线验收记录](offline-performance.md)。真实 Codex、原生交互及 #36 仍未完成；本目录不表示 #35 整体验收通过。
+
+## 准备时的边界与前置
 
 2026-10-25 基于本地 `c74eb42c4050f69e742c4aed56c8f5e5f703f2fd`。已完整读取 #35、#20 正文与评论（当时均无评论）、领域文档和测试隔离说明。
 
@@ -17,9 +19,9 @@
 
 远端 main 为 `123948dd8e3d7ffe8316ee9680b34898d811773c`；#35 仍 OPEN。上述状态是准备时快照，执行前须重查 `gh issue view` 和 `gh api repos/PerryFinn/random-thoughts/issues/35/dependencies/blocked_by`，并核对 #34 的同类依赖接口。本地代码存在不解除远端阻塞，不认领、不评论、不推送、不关闭票。#36 的 48 次真实语义任务独立承接，不在本轮执行或预填通过。
 
-本轮允许：读仓库／GitHub、编写清单与纯合成夹具、纯生产构建、隔离 U/I/L 测试、code-review、本地提交。保留并排除既有 `project.pbxproj` 两处设置排序变化；起始 SHA-256 为 `ae1aa7492c840053d3114b948f5437dc66323aee0fac302c326184e090ad6c1b`。
+准备阶段允许：读仓库／GitHub、编写清单与纯合成夹具、纯生产构建、隔离 U/I/L 测试、code-review、本地提交。保留并排除既有 `project.pbxproj` 两处设置排序变化；起始 SHA-256 为 `ae1aa7492c840053d3114b948f5437dc66323aee0fac302c326184e090ad6c1b`。
 
-本轮不启动应用，不运行旧宿主或 UI 测试，不访问真实 Codex／AI，不读写用户日报数据库，不进行删除、重置或恢复。后续真实操作须先在记录中明确执行者、环境及用户已授权的范围；数据库删除或重置须另有明确许可。当前没有这些授权。
+准备和离线测量均不启动应用，不运行旧宿主或 UI 测试，不访问真实 Codex／AI，不读写用户日报数据库，不进行删除、重置或恢复。后续真实操作须先在记录中明确执行者、环境及用户已授权的范围；数据库删除或重置须另有明确许可。当前没有这些授权。
 
 ## 材料及隔离入口
 
@@ -62,7 +64,7 @@ rtk proxy ./script/test-isolated.sh --configuration Debug --filter ReportAccepta
 
 ## 原生界面与系统人工清单（全部待执行）
 
-在 **macOS 26.5** 与**当前开发系统**分别记录；若实际同一版本兼任两者，写明实际版本。当前构建机 27.0.1 不构成 26.5 实测。所有截图只含合成内容，以内容区域 pt 衡量尺寸，像素尺寸与缩放另记。
+在 **macOS 26.5** 与**当前开发系统**分别记录；若实际同一版本兼任两者，写明实际版本。准备时构建机为 27.0.1，本轮离线测量为 27.2，均不构成 26.5 原生实测。所有截图只含合成内容，以内容区域 pt 衡量尺寸，像素尺寸与缩放另记。
 
 | ID | 操作与预期 | 必留证据 |
 | --- | --- | --- |
@@ -80,14 +82,26 @@ rtk proxy ./script/test-isolated.sh --configuration Debug --filter ReportAccepta
 
 目前没有生产 UI 的受控传输启动入口；`PrivacyFlowHarness` 仅供隔离测试，不能据此声称 FLOW-02 原生交互已测。后续执行者须先确认可审查的隔离组合与故障注入方法；缺少方法就记录受阻，不偷偷增加产品调试开关。真实模型语义由 #36 独立记录。
 
-## 本地性能与包体测量方案（尚未测量）
+## 本地性能与包体测量
 
-只使用上表固定种子材料。通过现有真实 `CodexDataSourceReader`＋合成 stdio 测本地扫描、`OfflineReportTokenizer` 测双编码、`ReportInputPlan`／`ReportBatchPlan` 测规划、`ReportBatchExecutor`＋受控 AI 测调度；先检查这些入口的实际签名和受控合成响应，不能用材料生成耗时替代它们。当前没有完整性能 runner，本轮只准备输入和方法；接线、运行与数据均未完成。
+只使用上表固定种子材料。通过现有真实 `CodexDataSourceReader`＋合成 stdio 测本地扫描、`OfflineReportTokenizer` 测双编码、`ReportGenerationPlan`（内部选择 `ReportInputPlan`／`ReportBatchPlan`）测规划、`ReportBatchExecutor`＋受控 AI 测调度；不能用材料生成耗时替代它们。隔离测量入口为 `script/measure-report-performance.sh`，默认 Release，按规模／阶段分别启动测试进程，每进程先首次、再重复一次。调度分别测并发 1／3／8。测量只在显式调用该脚本时运行，普通隔离回归不执行压力测量。
+
+```bash
+rtk proxy ./script/measure-report-performance.sh
+# 定向复测，保留每次运行的原始聚合样本及失败
+rtk proxy ./script/measure-report-performance.sh small tokenize
+rtk proxy ./script/measure-report-performance.sh all constraints
+```
+
+脚本沿用隔离测试沙盒；扫描只执行 `SyntheticCodexServer`，其夹具由合成候选转换为公开 stdio wire，既不是 Codex 私有文件也不代表真实 Codex。测量不开放网络、不调用生产入口、不打开数据库。输出只含规模、数值和固定状态，不输出正文、请求或来源。正式实测值与环境写入本目录单独的离线验收记录，人工记录模板保持空白。
 
 - 每规模／每阶段分别记录首次（新进程、资源首次加载）和重复（同进程复用已加载资源）的独立样本；禁止未执行填 0。明确是否包括材料构造，推荐构造完成后计时；记录固定 C／O／并发 1、3、8、实际输入字节和请求数，不记录正文或端点。
 - 用单调时钟测阶段墙钟时间；以专用测试进程的 `getrusage` 等记录峰值 RSS，macOS 单位为字节。进程累计峰值不能当单阶段增量；若包含 stdio 子进程，分别报告父／子峰值及采样方法，不能把彼此不同时刻峰值相加当同时峰值。首次／重复峰值无法分离时如实注明。
+- 使用 `DispatchTime.uptimeNanoseconds`；睡眠时间不计入该时钟，测量期间不主动睡眠。计时不含材料构造、扫描夹具编码或调度计划准备；调度首次执行前 tokenizer 已因准备计划加载，须单列准备耗时。RSS 记录阶段前后 `RUSAGE_SELF` 累计峰值，包含材料／准备及测试框架；重复峰值继承首次高水位。扫描另列已回收子进程的 `RUSAGE_CHILDREN` 累计峰值，子进程每次重新装载夹具；不声称测得独立阶段内存增量或冷磁盘缓存。
 - 逐项检查当天输入全覆盖、单请求预算、在途并发、有限收敛、必要失败整体终止及取消后无派发／旧结果。无性能数字门槛不取消这些硬约束；超时、资源不足或 runner 未准备均记未完成。
+- 规划包含真实尽力脱敏与双编码；调度前重建计划并单列准备时间。调度计时包含生产预算检查及测量 Adapter 对每笔独立文本块的再次计数审计，不能当作无审计的纯调度开销。受控响应显式返回空合成事实，以检验覆盖与收敛；不验证模型语义。每档另以请求屏障注入必要失败和取消后迟到成功，确认无后续提取／归并／成文；正文及来源的原子保护、密集归并和无缩减拒绝仍由统一流程隔离回归验证。
 - 最终 App 包体按相同 Xcode／架构／配置／签名策略／构建参数，记录功能前对照构建与候选构建的 commit、完整 `.app` 逻辑字节、磁盘占用和差值；说明资源、二进制及是否含 dSYM。可采用共同前置 `123948d`，须先核查其确为功能前且能同条件构建；无法取得对照则包体增量未完成。`c74eb42` 已有日报功能，不能拿本轮仅材料改动的零差值替代功能总增量；词表文件尺寸也不能替代 App 增量。
+- 已构建包可用 `rtk proxy /usr/bin/python3 script/measure-app-size.py <功能前.app> <候选.app>` 比较。逻辑字节累加包内普通文件及符号链接自身的大小，不跟随目录链接；磁盘字节为 macOS `du -sk` × 1024，受文件系统分配影响。输出同时拆出主可执行文件、Resources 与其余文件；包外 dSYM 不计入。
 
 ## 记录与完成判断
 

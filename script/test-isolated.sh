@@ -61,6 +61,10 @@ export TMPDIR="$TEST_ROOT/tmp/"
 # Reserve one available loopback port for the in-process synthetic HTTP suite.
 # The sandbox admits this exact port and continues denying every other endpoint.
 export RANDOM_THOUGHTS_CHAT_PORT="$(/usr/bin/python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+ALLOW_LOOPBACK=1
+if [[ -n "${RANDOM_THOUGHTS_PERFORMANCE_SCALE:-}" ]]; then
+  ALLOW_LOOPBACK=0
+fi
 
 /usr/bin/sandbox-exec \
   -D "USER_HOME=$RANDOM_THOUGHTS_PROTECTED_HOME" \
@@ -69,6 +73,7 @@ export RANDOM_THOUGHTS_CHAT_PORT="$(/usr/bin/python3 -c 'import socket; s=socket
   -D "TEST_RUNNER=$TEST_RUNNER" \
   -D "STORAGE_PROBE=$STORAGE_PROBE" \
   -D "CODEX_PROBE=$CODEX_PROBE" \
+  -D "ALLOW_LOOPBACK=$ALLOW_LOOPBACK" \
   -D "CHAT_ENDPOINT=localhost:$RANDOM_THOUGHTS_CHAT_PORT" \
   -f "$ROOT_DIR/script/isolated-tests.sb" \
   "$TEST_RUNNER" --test-bundle-path "$TEST_BINARY" --testing-library swift-testing "$@"

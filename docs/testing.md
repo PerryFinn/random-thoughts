@@ -4,7 +4,31 @@
 
 隐私出口、精确日志白名单和父规格最低覆盖矩阵见 [daily-report-privacy.md](daily-report-privacy.md)。
 
-[#35 验收准备](acceptance/issue-35/README.md) 提供人工清单、纯合成材料及[记录模板](acceptance/issue-35/record-template.md)。本轮只验证材料和既有隔离行为；真实 Codex、原生交互、截图、性能及包体实测仍未完成，不能据此声明 #35 或父规格验收通过。
+[#35 验收入口](acceptance/issue-35/README.md) 提供人工清单、纯合成材料及[记录模板](acceptance/issue-35/record-template.md)。三档离线性能、硬约束及完整 App 包体增量已实测，见[离线验收记录](acceptance/issue-35/offline-performance.md)；真实 Codex、原生交互、截图及 #36 仍未完成，不能据此声明 #35 或父规格验收通过。
+
+## #35 离线性能与包体验证（2026-10-30）
+
+基于 `6f41f8a9e60d3c1356b0afec274734766114a30e`，仅新增隔离测量入口及聚合记录，没有改生产源码、资源、Xcode 工程或产品契约。执行前只读核对 #35 OPEN 且被 OPEN 的 #34 阻塞，#34 的 #29／#30／#32／#33 也仍 OPEN；相应本地实现均为起点祖先。本次不解除远端阻塞、不更改 Issue 状态。
+
+实测为 Apple M3 Max、36GiB、arm64、macOS 27.2（26B123）、Xcode 27.1（27A9275）、Swift 6.4、macOS 27.0 SDK。沿用隔离沙盒，性能模式额外禁止全部网络；压力测试只执行合成 stdio 子进程及受控 AI Adapter，不打开数据库、不启动生产应用。
+
+| 实际命令 | 结果 |
+| --- | --- |
+| `rtk proxy ./script/test-isolated.sh --configuration Debug --filter ReportAcceptanceMaterialTests`（最终） | 1 套件、4 项通过；新增 wire 回归曾先因空扫描结果实际失败，接线后通过。 |
+| `rtk proxy ./script/measure-report-performance.sh`（阶段矩阵） | 三档 scan／tokenize／plan 及并发 1／3／8 schedule 的首次／重复共 36 条样本，加 9 条调度准备样本；退出 0。 |
+| `rtk proxy ./script/measure-report-performance.sh all constraints` | 三档必要失败、取消后迟到成功全部通过；每种情况仅初始 3 笔请求，无后续派发或部分返回。最终默认入口也包含此检查。 |
+| `rtk proxy ./script/build.sh --configuration Debug` | `BUILD SUCCEEDED`，生产 Debug 纯构建。 |
+| `rtk proxy ./script/test-isolated.sh --configuration Debug` | 55 套件、272 项登记；2 个显式压力入口跳过，其余 270 项执行通过，退出 0。 |
+| `rtk proxy ./script/test-isolated.sh --configuration Release` | 55 套件、272 项登记；相同 2 项跳过，其余 270 项执行通过，退出 0。压力入口已由独立测量命令实测。 |
+| `rtk proxy bash -n script/measure-report-performance.sh script/test-isolated.sh` | 通过。 |
+
+功能前 `123948d` 与候选 `6f41f8a` 由干净归档、同一 arm64 Release／禁签名参数分别纯构建，均成功。完整 `.app` 逻辑字节由 3,041,091 增至 16,849,331，增加 13,808,240 字节；磁盘占用增加 13,811,712 字节。精确命令、二进制 SHA、资源拆分、45 条原始聚合样本、3 条故障检查及峰值口径均见[离线验收记录](acceptance/issue-35/offline-performance.md)。
+
+记录保留初次编译、合成标题规范化及沙盒相对导入失败，不把失败尝试计为样本。Debug／Release 最终回归验证完整输入、独立协议块、原正文／来源原子保护、密集归并、无缩减拒绝、必要失败与取消后迟到结果；压力样本返回空合成事实，不能评价真实模型语义或延迟。RSS 为进程累计高水位，包含框架、材料及准备；重复值继承首次峰值，扫描父／子分别报告，不声称是阶段增量或同时峰值。
+
+纯构建只有既有 CoreDevice／CoreSimulator 环境诊断及 AppIntents 元数据跳过提示，没有 Swift 代码警告。没有删除已有文件或用户数据；开发中新增的无效沙盒导入配置已删除，最终沿用现有 profile。既有 `project.pbxproj` 两处排序改动保留并排除。本轮仍未执行真实 Codex／AI、原生 UI／系统／可达性／截图、最低 macOS 26.5、OSLog 落盘及 #36；未实测项保持未完成。
+
+提交前两轴独立 code-review：Standards 为 0 项文档标准违规、0 项可行动代码气味；Spec 为 0 项可行动问题。`git diff --cached --check 6f41f8a` 通过，未将离线完成扩大为 #35 或父 #20 整体验收通过。
 
 ## #35 验收准备记录（2026-10-25）
 

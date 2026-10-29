@@ -4,6 +4,21 @@ import Testing
 
 @MainActor
 struct ReportAcceptanceMaterialTests {
+    @Test func syntheticWirePreservesEveryInputThroughTheRealScanner() async throws {
+        let material = try ReportAcceptanceMaterials.load()
+        let scale = ReportAcceptanceMaterials.Scale(name: "wire-test", sessions: 2, turns: 4,
+            utf8Bytes: 16_384, oversizedTurnBytes: 0)
+        let sessions = try material.makeSessions(for: scale)
+        let environment = try IsolatedTestEnvironment()
+        defer { environment.close() }
+        let reader = try scanReader(environment, fixture: ReportAcceptanceMaterials.wireFixture(sessions: sessions))
+        let result = try await reader.scan(scanIdentity(environment), day: #require(sessions.first?.turns.first?.day), progress: { _ in })
+        let matches = result.sessions == sessions
+        #expect(matches)
+        #expect(result.failures.isEmpty && !result.isPartial)
+        try expectScanChildReaped(environment)
+    }
+
     @Test func preparedMaterialsDefineTheRequiredScalesAndSafeManualPrompts() throws {
         let material = try ReportAcceptanceMaterials.load()
         #expect(material.schemaVersion == 1 && material.seed == 35)

@@ -1,0 +1,3 @@
+{"necessaryFailure":"passed","scale":"small","lateCancellation":"passed","dispatchedPerCase":3}
+{"lateCancellation":"passed","scale":"medium","dispatchedPerCase":3,"necessaryFailure":"passed"}
+{"scale":"large","necessaryFailure":"passed","lateCancellation":"passed","dispatchedPerCase":3}

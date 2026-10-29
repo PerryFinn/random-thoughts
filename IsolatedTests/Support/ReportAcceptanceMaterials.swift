@@ -33,6 +33,26 @@ struct ReportAcceptanceMaterials: Decodable {
         return try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
     }
 
+    static func wireFixture(sessions: [CodexCandidateSession]) -> [String: Any] {
+        let threads = sessions.map { session in
+            syntheticSession(id: session.id, name: session.title, cwd: session.workDirectory ?? "",
+                turns: session.turns.map {
+                    syntheticTurn(id: $0.id, at: $0.startedAt.timeIntervalSince1970,
+                        user: $0.userText, final: $0.finalAnswer)
+                })
+        }
+        let summaries = threads.map { thread in
+            var copy = thread
+            copy["turns"] = []
+            return copy
+        }
+        let pages = stride(from: 0, to: summaries.count, by: 100).map {
+            Array(summaries[$0..<min($0 + 100, summaries.count)])
+        }
+        return ["scenario": "scan", "currentPages": pages.isEmpty ? [[]] : pages, "archivedPages": [[]],
+            "threads": Dictionary(uniqueKeysWithValues: zip(sessions.map(\.id), threads))]
+    }
+
     func makeSessions(for scale: Scale) throws -> [CodexCandidateSession] {
         try #require(scale.sessions > 0 && scale.turns > 1 && scale.turns % scale.sessions == 0)
         let day = try ReportDay(calendarDate: reportDate, timeZoneIdentifier: timeZone)
@@ -60,7 +80,8 @@ struct ReportAcceptanceMaterials: Decodable {
             }
             return CodexCandidateSession(
                 id: "SYNTH35-\(seed)-session-\(sessionIndex)",
-                title: "仅合成会话 \(sessionIndex) " + String(repeating: "长标题 Unicode 👩🏽‍💻 / ", count: 6),
+                title: ("仅合成会话 \(sessionIndex) " + String(repeating: "长标题 Unicode 👩🏽‍💻 / ", count: 6))
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
                 workDirectory: "/synthetic/issue-35/worktree-\(sessionIndex % 3)",
                 origin: .user, turns: turns, background: []
             )
