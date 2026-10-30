@@ -8,6 +8,24 @@
 
 [#36 语义验收入口](acceptance/issue-36/README.md) 复用既有直接语义夹具，提供[固定八场景](acceptance/issue-36/scenarios.md)、判定规则、调用规模／授权清单及[三协议 48 任务空白模板](acceptance/issue-36/record-template.md)。用户补充提供 Key 并授权两个 OpenAI 协议的真实请求后，使用 `./script/test-live-openai.sh scenarios` 显式执行；默认隔离入口仍断网且跳过 live 测试，不自动加载 `.env.local`。Messages、原生应用、真实 Codex 和用户数据库操作仍不在本轮授权内，未实测项保持未完成。
 
+## #36 S08 共享 schema 阻塞修复验证（2026-10-31）
+
+基于 `b76cce4`，先从完整 CC-S08 复现，缩至 B08-1／B08-4／B16-4 三轮；两轮对照不复现。边界计数确认原因果句可以仍在抽取结果中，但与 B08 草稿／审核进度混在同一事实，最终成文便把来源条目当成影响范围；单改成文规则的多版候选仍失败。最终同时约束抽取／归并与成文：因果阻塞独立成事实，优先保留，范围未明确时保留原指代及未知范围；成文不从来源编号推断影响对象，也不强行扩大到全部规则。主契约先更新，直接／分批请求规则均先观察预期失败再实现；覆盖、引用、整轮状态、schema 和预算检查不变。完整过程与所有失败见[逐次记录](acceptance/issue-36/live-openai.md)。
+
+| 实际命令／检查 | 结果 |
+| --- | --- |
+| `./script/test-isolated.sh --filter 'ReportSemanticFixtureTests\|ReportFactContractTests'` | 各版规则均先出现预期缺失断言失败；抽取独立事实、优先保留及未知范围规则也分别先红后绿。最终 2 套件／4 项登记通过；它们验证实际请求契约和渲染，不证明模型语义。 |
+| `./script/test-isolated.sh --filter 'LiveOpenAISemanticTests\|ReportAcceptanceScenarioTests'` | 离线规划为两协议每次 7–9 笔、6 提取、最多 1 层；三轮两对照均为直接 1 笔。缩减夹具验证只修改局部范围一句、canonical 字节不变。 |
+| `./script/test-live-openai.sh s08-minimum`，F21 | 最后三轮直接对照：3 探测＋2 生成，未点名集合与跨句明确仅 B08-4 均保留；它验证共用成文规则，不能替代完整场景。 |
+| `./script/test-live-openai.sh s08-blockers`，R03–R06 | 每批均 6 探测＋28 生成；即使有限断言或共享目标偶有通过，全文仍有失败，未记作最终成功。F22 又观察到阻塞与草稿混写；F23 只要求拆分事实后直接遗漏 schema，命令退出 1，失败保留。 |
+| 完整 CC-S08 单次诊断，F24 | 3 探测＋7 生成；抽取及成文输入均为独立 schema 阻塞事实，原句及未知范围保留、不混入条目进度，最终共享范围目标通过；不替代正式复测。 |
+| `./script/test-live-openai.sh s08-blockers`，R07 | 最终完整 v1 CC／RS 各两次，6 探测＋28 生成；有限断言通过，全文核对共享 schema 原因及范围目标为 4／4。全文为 3 失败／1 降级，包含 sign-off 范围及概览扩大完成范围等问题，且实际均 0 层；完整 S08／#36 未通过。 |
+| `./script/test-isolated.sh --configuration Debug`／`Release` | 各 58 套件／281 项登记，3 项显式入口跳过，278 项执行通过；无 Swift 编译警告。 |
+| `./script/build.sh --configuration Debug` | `BUILD SUCCEEDED`；纯构建，保留既有 CoreDevice／CoreSimulator 环境诊断与 AppIntents 元数据提示。 |
+| `bash -n script/test-live-openai.sh`、本地 Markdown 链接、`git diff --check` | 通过；原调用记录为逐字前缀保留，工程排序改动哈希不变并排除，修改文件不含 Key。 |
+
+本轮 **319 笔 HTTP（102 探测＋217 生成）** 均计入记录（含失败候选），累计 **647 笔已确认**，原 D00 最多 3 笔探测仍未确认，usage／费用未测。临时缩减变体、诊断模式与 `[DEBUG-S08-*]` 探针已删除；没有删除既有文件、用户数据或旧失败。显式保留最小对照和完整受影响场景入口，默认隔离测试不读 Key、不发真实请求。未启动应用、未读真实 Codex、未操作用户数据库，不推送、不评论、不关票；其他遗留问题、S08 多层、Messages 与用户人工验收继续未完成。
+
 ## #36 S07 未认可计划修复验证（2026-10-31）
 
 基于 `19cc50a`，先用完整 CC-S07 复现，再缩至一个轮次、三片／四笔生成；两次缩减调用均在成文阶段新增行动，上游仍保留未执行状态，分批没有漏传共用指令。根因是成文契约未明确区分未解决状态与获认可未来行动。先更新长输入契约，并观察直接／分批请求契约回归共 30 处预期失败，再补四行共用指令；覆盖、引用、整轮状态及预算检查未改。既有明确计划夹具与生成结果原样保留，不新增语义过滤或 AI 修复。

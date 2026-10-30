@@ -10,7 +10,7 @@ struct ReportAcceptanceScenario {
     let sessions: [CodexCandidateSession]
     let history: [SavedDailyReport]
     let day: ReportDay
-    var totalBudget: Int { id == "S07" || id == "S08" ? 12_000 : 65_536 }
+    var totalBudget: Int { ["S07", "S08", "S08-minimum", "S08-local"].contains(id) ? 12_000 : 65_536 }
     var turns: [CodexWorkTurn] { sessions.flatMap(\.turns) }
     var userBytes: Int { turns.reduce(0) { $0 + $1.userText.utf8.count } }
     var answerBytes: Int { turns.reduce(0) { $0 + ($1.finalAnswer?.utf8.count ?? 0) } }
@@ -121,6 +121,25 @@ struct ReportAcceptanceScenario {
             scenarios.append(.init(id: id, settings: settings, sessions: sessions, history: saved, day: day))
         }
         return scenarios
+    }
+
+    /// Three-turn reproducer of the S08 provenance/scope confusion; not a replacement for v1 acceptance.
+    func blockerScopeMinimum(explicitlyLocal: Bool) throws -> Self {
+        guard id == "S08" else { throw CocoaError(.fileReadCorruptFile) }
+        let selected = sessions.filter { ["S08-B08", "S08-B16"].contains($0.id) }.map { session in
+            let turns = session.turns.enumerated().filter {
+                $0.offset == 3 || (session.id == "S08-B08" && $0.offset == 0)
+            }.map { _, turn in
+                CodexWorkTurn(id: turn.id, startedAt: turn.startedAt, day: turn.day,
+                    userText: turn.userText.components(separatedBy: "\n")[0],
+                    finalAnswer: explicitlyLocal ? turn.finalAnswer?.replacingOccurrences(
+                        of: "The shared synthetic schema mismatch blocks integrating these rules.",
+                        with: "Only SYNTH36-08-B08-4 is affected by the synthetic schema mismatch; the other rules are not affected. This mismatch blocks integration.") : turn.finalAnswer)
+            }
+            return CodexCandidateSession(id: session.id, title: session.title, workDirectory: session.workDirectory,
+                origin: session.origin, turns: turns, background: [])
+        }
+        return Self(id: explicitlyLocal ? "S08-local" : "S08-minimum", settings: settings, sessions: selected, history: [], day: day)
     }
 
     func prepare(environment: ReportFlowTestEnvironment, service: SavedAIService) async throws -> DailyReportFlow {

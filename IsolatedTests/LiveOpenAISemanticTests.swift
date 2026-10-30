@@ -4,6 +4,24 @@ import Testing
 
 @MainActor
 struct LiveOpenAISemanticTests {
+    @Test func s08PlanningStaysWithinTheTargetedLiveCaps() async throws {
+        let original = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" })
+        for type in [AIServiceType.chatCompletions, .responses] {
+            var service = SavedAIService(configuration: liveOpenAIConfiguration(type))
+            service.validation.structured = .supported
+            let plan = try await LivePlan.make(original, service: service, credential: "SYNTHETIC_S08_PLAN_KEY")
+            #expect(plan.maximumRequests <= 9 && plan.extractionRequests > 1)
+            print("S08 OFFLINE \(type.rawValue) generation=\(plan.minimumRequests)...\(plan.maximumRequests) extract=\(plan.extractionRequests) merge-layers<=\(plan.maximumMergeLayers)")
+            if type == .chatCompletions {
+                for local in [false, true] {
+                    let minimum = try await LivePlan.make(original.blockerScopeMinimum(explicitlyLocal: local),
+                        service: service, credential: "SYNTHETIC_S08_PLAN_KEY")
+                    #expect(minimum.minimumRequests == 1 && minimum.maximumRequests == 1 && minimum.path == "direct")
+                }
+            }
+        }
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["RANDOM_THOUGHTS_LIVE_OPENAI"] == "1"))
     func officialOpenAIProtocols() async throws {
         let variables = ProcessInfo.processInfo.environment
@@ -12,8 +30,11 @@ struct LiveOpenAISemanticTests {
             throw LiveOpenAIError.missingEnvironment
         }
         let root = URL(fileURLWithPath: output, isDirectory: true)
+        let mode = variables["RANDOM_THOUGHTS_LIVE_MODE"]
+        let minimumScope = mode == "s08-minimum"
+        let repetitions = minimumScope ? 1 : 2
         var qualifiedServices: [SavedAIService] = []
-        for service in [AIServiceType.chatCompletions, .responses] {
+        for service in minimumScope ? [.chatCompletions] : [AIServiceType.chatCompletions, .responses] {
             let access = LiveOpenAIAccess(requestLimit: 3)
             let environment = ReportFlowTestEnvironment()
             environment.aiAccess = access
@@ -36,12 +57,19 @@ struct LiveOpenAISemanticTests {
             guard qualified else { return }
             qualifiedServices.append(flow.savedAIService)
         }
-        let mode = variables["RANDOM_THOUGHTS_LIVE_MODE"]
-        guard mode == "scenarios" || mode == "invalid-response" || mode == "s07-plans" else { return }
-        let scenarios = try ReportAcceptanceScenario.loadAll()
+        guard mode == "scenarios" || mode == "invalid-response" || mode == "s07-plans"
+                || mode == "s08-blockers" || minimumScope else { return }
+        let all = try ReportAcceptanceScenario.loadAll()
+        let scenarios: [ReportAcceptanceScenario]
+        if minimumScope {
+            let original = try #require(all.first { $0.id == "S08" })
+            scenarios = try [false, true].map { try original.blockerScopeMinimum(explicitlyLocal: $0) }
+        } else { scenarios = all }
         let selected = qualifiedServices.flatMap { service in
             scenarios.filter { scenario in
-                mode == "scenarios" || scenario.id == "S07"
+                if minimumScope { return true }
+                if mode == "s08-blockers" { return scenario.id == "S08" }
+                return mode == "scenarios" || scenario.id == "S07"
                     || (mode == "invalid-response" && service.configuration.service == .chatCompletions && scenario.id == "S08")
             }.map { (service, $0) }
         }
@@ -52,12 +80,14 @@ struct LiveOpenAISemanticTests {
         }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(plans).write(to: root.appendingPathComponent("plans.json"))
-        let minimum = plans.values.reduce(0) { $0 + $1.minimumRequests * 2 }
-        let maximum = plans.values.reduce(0) { $0 + $1.maximumRequests * 2 }
-        print("LIVE PLAN generation HTTP=\(minimum)...\(maximum); tasks=\(selected.count * 2); no automatic retries")
+        let minimum = plans.values.reduce(0) { $0 + $1.minimumRequests * repetitions }
+        let maximum = plans.values.reduce(0) { $0 + $1.maximumRequests * repetitions }
+        if minimumScope, maximum != 2 { throw LiveOpenAIError.unexpectedConfiguration }
+        if mode == "s08-blockers", maximum > 36 { throw LiveOpenAIError.unexpectedConfiguration }
+        print("LIVE PLAN generation HTTP=\(minimum)...\(maximum); tasks=\(selected.count * repetitions); no automatic retries")
         for (service, scenario) in selected {
             let plan = try #require(plans["\(service.configuration.service.rawValue)-\(scenario.id)"])
-            for repetition in 1...2 {
+            for repetition in 1...repetitions {
                 let id = "\(plan.id)-\(repetition)"
                 let access = LiveOpenAIAccess(requestLimit: plan.maximumRequests)
                 let environment = ReportFlowTestEnvironment()
@@ -86,6 +116,9 @@ struct LiveOpenAISemanticTests {
                 }
                 print("LIVE \(id) result=\(record.result) error=\(record.error ?? "none") HTTP=\(requests.count) layers=\(record.actualMergeLayers)")
                 #expect(flow.hasDraft && flow.generationError == nil)
+                if mode == "s08-blockers" || minimumScope {
+                    expectS08ScopeSignals(flow.body, explicitlyLocal: scenario.id == "S08-local")
+                }
                 if mode == "s07-plans" {
                     let plans = flow.body.components(separatedBy: "## 明日计划\n\n").last
                     // A verbatim source status in the wrong section is a degradation, not a new action.
@@ -100,6 +133,26 @@ struct LiveOpenAISemanticTests {
 }
 
 private enum LiveOpenAIError: Error { case missingEnvironment, unexpectedConfiguration }
+
+// Fixed v1 phrases only; passing these signals never replaces review of every section.
+private func expectS08ScopeSignals(_ report: String, explicitlyLocal: Bool) {
+    let body = report.lowercased()
+    let risks = body.components(separatedBy: "## issues & risks\n\n").last?
+        .components(separatedBy: "\n\n## tomorrow’s plan").first ?? ""
+    #expect(risks.contains("schema") && risks.contains("integrat") && risks.contains("sign-off"))
+    if explicitlyLocal {
+        #expect(risks.contains("only") && risks.contains("synth36-08-b08-4") && risks.contains("other rules"))
+    } else {
+        let narrowed = ["integrating synth36-08-b08", "integration for synth36-08-b08",
+            "these rules for synth36-08-b08", "b08 rules", "b08-4 rule", "b08-4-related rules",
+            "b08-4 integration path"]
+        let blockerLines = body.components(separatedBy: "\n").filter {
+            $0.contains("schema") || $0.contains("integrat") || $0.contains("block")
+        }.joined(separator: "\n")
+        #expect(narrowed.allSatisfy { !blockerLines.contains($0) })
+        #expect(risks.components(separatedBy: "\n").filter { $0.contains("schema") }.allSatisfy { !$0.contains("all rules") })
+    }
+}
 
 private struct LivePlan: Codable {
     let id: String

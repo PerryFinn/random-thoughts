@@ -30,6 +30,10 @@ struct ReportFactContractTests {
             let facts = requests.filter { if case .composeReport = $0.intent { false } else { true } }
             #expect(!facts.isEmpty)
             #expect(facts.allSatisfy { $0.schema == (split ? ReportFactPayload.partialTurnSchema : ReportFactPayload.schema) })
+            #expect(facts.allSatisfy { $0.instruction.contains("Keep each causal blocker in a SEPARATE fact from draft/progress/review results") })
+            #expect(facts.allSatisfy { $0.instruction.contains("its source association does NOT define affected scope") })
+            #expect(facts.allSatisfy { $0.instruction.contains("Emit all causal blockers before compressed progress, even if mentioned once") })
+            #expect(facts.allSatisfy { $0.instruction.contains("retain its pronouns and state that affected scope is unspecified") })
             if split { #expect(facts.contains { if case .mergeFacts = $0.intent { true } else { false } }) }
         }
     }
@@ -51,6 +55,7 @@ struct ReportFactContractTests {
         #expect(composition.instruction.contains("Unfinished, failed or blocked work, tests not run and missing evidence are statuses, NOT explicit TODOs"))
         #expect(composition.instruction.contains("An already attempted request is NOT a renewed request to retry"))
         #expect(composition.instruction.contains("If no qualifying future action is explicit in the evidence, plans MUST be an empty string"))
+        expectBlockerEvidenceRules(in: composition.instruction)
         let extraction = requests.filter { if case .extractFacts = $0.intent { true } else { false } }
         #expect(extraction.count == 2)
         for request in extraction {

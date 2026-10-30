@@ -4,6 +4,31 @@ import Testing
 
 @MainActor
 struct ReportAcceptanceScenarioTests {
+    @Test func blockerScopeMinimumChangesOnlyTheExplicitLocalScopeClause() throws {
+        let source = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" })
+        let unspecified = try source.blockerScopeMinimum(explicitlyLocal: false)
+        let local = try source.blockerScopeMinimum(explicitlyLocal: true)
+        #expect(unspecified.sessions.map(\.id) == ["S08-B08", "S08-B16"])
+        #expect(unspecified.sessions.map { $0.turns.count } == [2, 1])
+        #expect(unspecified.totalBudget == source.totalBudget && local.totalBudget == source.totalBudget)
+        #expect(unspecified.history.isEmpty && unspecified.sessions.allSatisfy { $0.background.isEmpty })
+        let originals = source.turns.filter { ["S08-B08-today-29", "S08-B08-today-32", "S08-B16-today-64"].contains($0.id) }
+        #expect(originals.count == 3)
+        for (turn, original) in zip(unspecified.turns, originals) {
+            #expect(turn.id == original.id && turn.startedAt == original.startedAt && turn.day == original.day)
+            #expect(turn.userText == original.userText.components(separatedBy: "\n")[0])
+            #expect(turn.finalAnswer == original.finalAnswer)
+        }
+        #expect(local.turns.map(\.userText) == unspecified.turns.map(\.userText))
+        #expect(local.turns[0].finalAnswer == unspecified.turns[0].finalAnswer)
+        #expect(local.turns[2].finalAnswer == unspecified.turns[2].finalAnswer)
+        #expect(local.turns[1].finalAnswer == unspecified.turns[1].finalAnswer?.replacingOccurrences(
+            of: "The shared synthetic schema mismatch blocks integrating these rules.",
+            with: "Only SYNTH36-08-B08-4 is affected by the synthetic schema mismatch; the other rules are not affected. This mismatch blocks integration."))
+        #expect(source.sessions.count == 17 && source.turns.count == 65)
+        #expect(source.userBytes == 80_648 && source.answerBytes == 6_833)
+    }
+
     @Test func missingHistoryDaysStayMissingAndHistoricalFactsRemainAuxiliary() async throws {
         let scenario = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S03" })
         let environment = ReportFlowTestEnvironment()
