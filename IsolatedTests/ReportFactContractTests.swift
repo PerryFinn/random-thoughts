@@ -47,6 +47,10 @@ struct ReportFactContractTests {
         if let confirmation = flow.confirmation { flow.send(.confirm(confirmation.id)); await flow.waitForGeneration() }
         #expect(flow.generationError == nil && flow.hasDraft)
         let requests = await access.requests
+        let composition = try #require(requests.last)
+        #expect(composition.instruction.contains("Unfinished, failed or blocked work, tests not run and missing evidence are statuses, NOT explicit TODOs"))
+        #expect(composition.instruction.contains("An already attempted request is NOT a renewed request to retry"))
+        #expect(composition.instruction.contains("If no qualifying future action is explicit in the evidence, plans MUST be an empty string"))
         let extraction = requests.filter { if case .extractFacts = $0.intent { true } else { false } }
         #expect(extraction.count == 2)
         for request in extraction {

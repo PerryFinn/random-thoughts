@@ -8,6 +8,23 @@
 
 [#36 语义验收入口](acceptance/issue-36/README.md) 复用既有直接语义夹具，提供[固定八场景](acceptance/issue-36/scenarios.md)、判定规则、调用规模／授权清单及[三协议 48 任务空白模板](acceptance/issue-36/record-template.md)。用户补充提供 Key 并授权两个 OpenAI 协议的真实请求后，使用 `./script/test-live-openai.sh scenarios` 显式执行；默认隔离入口仍断网且跳过 live 测试，不自动加载 `.env.local`。Messages、原生应用、真实 Codex 和用户数据库操作仍不在本轮授权内，未实测项保持未完成。
 
+## #36 S07 未认可计划修复验证（2026-10-31）
+
+基于 `19cc50a`，先用完整 CC-S07 复现，再缩至一个轮次、三片／四笔生成；两次缩减调用均在成文阶段新增行动，上游仍保留未执行状态，分批没有漏传共用指令。根因是成文契约未明确区分未解决状态与获认可未来行动。先更新长输入契约，并观察直接／分批请求契约回归共 30 处预期失败，再补四行共用指令；覆盖、引用、整轮状态及预算检查未改。既有明确计划夹具与生成结果原样保留，不新增语义过滤或 AI 修复。
+
+| 实际命令／检查 | 结果 |
+| --- | --- |
+| `./script/test-isolated.sh --filter 'ReportSemanticFixtureTests\|ReportFactContractTests'` | 修复前 30 处缺少规则的断言失败；修复后 2 套件／4 项登记通过，包含三协议预算及两种分批契约参数。 |
+| 临时 CC-S07 缩减真实回归 | 修复前连续两次新增未认可行动；仅修改共用指令后计划为空。所有缩减／探测尝试分别保留，见[真实记录](acceptance/issue-36/live-openai.md)。 |
+| `./script/test-live-openai.sh s07-plans` | 原完整 v1 CC-S07／RS-S07 各两次；6 笔探测＋60 笔生成。目标 4／4 无新增未认可行动；严格空章断言因一次原文状态错章而退出 1，原失败保留，未冒充命令通过。全文 Agent 复核 1 通过／3 降级，用户人工未执行。 |
+| 有限判据对保留合成报告的离线重放 | 旧 E01／E04–E06 四份新增行动仍全部拒绝；E07 及 R02 四份目标结果接受。允许逐字未执行状态属于校准判据范围，不是产品过滤；校准后未追加真实请求，不宣称新版 live 命令已实际通过。 |
+| `./script/test-isolated.sh --configuration Debug` | 58 套件／279 项登记，两个性能入口和 live 共 3 项跳过，276 项执行通过。 |
+| `./script/test-isolated.sh --configuration Release` | 同样 58 套件／279 项登记、3 项跳过，276 项执行通过。 |
+| `./script/build.sh --configuration Debug` | `BUILD SUCCEEDED`，未启动应用。没有 Swift 编译警告；保留既有 CoreDevice／CoreSimulator 环境诊断及 AppIntents 元数据跳过提示。 |
+| `bash -n script/test-live-openai.sh`、本地 Markdown 链接、`git diff --check` | 通过；原 P01–P03／R01 记录逐字保留，工程排序改动哈希不变并排除。 |
+
+临时缩减、分类统计、计划打印及全部 `[DEBUG-S07-*]` 插桩已删除；显式 `s07-plans` 只跑完整 S07，默认隔离测试不读 Key、不发真实请求。未删除已有文件、数据库或用户内容；未启动应用、未读真实 Codex、未操作用户数据库。不修复／复测 S08 和其他场景，旧失败及其他未完成项继续保留，#36／父 #20 仍未完成；不推送、不评论、不关票。
+
 ## #36 S07／S08 invalidResponse 修复验证（2026-10-30）
 
 基于 `bfa7d0d`，只修复分批事实请求的两项契约缺口：部分轮次仍能选择 `confirmed`、数字片段编号可冒充轮次关联。先从 CC-S07／CC-S08 的真实合成调用复现，再缩小到两片同轮／单个错误关联；`ReportFactContractTests.schemaCompliantExtractionCannotChooseTheObservedInvalidStatusOrTurn` 先因 `invalidResponse` 和缺少关联字段失败，再完成实现。`wholeTurnsKeepConfirmedAvailableWhilePartialMergesCannotChooseIt` 验证完整轮次与部分归并，`partialTurnSchemaFitsTheFullSchemaReservation` 核对三协议的双编码预留。既有坏覆盖／引用／整轮状态拒绝测试继续通过，新增数字关联拒绝参数；没有放松执行器检查或添加修复请求。

@@ -37,11 +37,12 @@ struct LiveOpenAISemanticTests {
             qualifiedServices.append(flow.savedAIService)
         }
         let mode = variables["RANDOM_THOUGHTS_LIVE_MODE"]
-        guard mode == "scenarios" || mode == "invalid-response" else { return }
+        guard mode == "scenarios" || mode == "invalid-response" || mode == "s07-plans" else { return }
         let scenarios = try ReportAcceptanceScenario.loadAll()
         let selected = qualifiedServices.flatMap { service in
             scenarios.filter { scenario in
-                mode == "scenarios" || scenario.id == "S07" || service.configuration.service == .chatCompletions && scenario.id == "S08"
+                mode == "scenarios" || scenario.id == "S07"
+                    || (mode == "invalid-response" && service.configuration.service == .chatCompletions && scenario.id == "S08")
             }.map { (service, $0) }
         }
         var plans: [String: LivePlan] = [:]
@@ -85,6 +86,12 @@ struct LiveOpenAISemanticTests {
                 }
                 print("LIVE \(id) result=\(record.result) error=\(record.error ?? "none") HTTP=\(requests.count) layers=\(record.actualMergeLayers)")
                 #expect(flow.hasDraft && flow.generationError == nil)
+                if mode == "s07-plans" {
+                    let plans = flow.body.components(separatedBy: "## 明日计划\n\n").last
+                    // A verbatim source status in the wrong section is a degradation, not a new action.
+                    // Other wording requires manual review; this is not a general semantic validator.
+                    #expect(plans == "无明确内容" || plans == "- 四项隔离测试尚未执行。")
+                }
                 // Configuration/credit failures invalidate every dependent task; do not spend more on them.
                 if let error = flow.generationError, error.invalidatesConfiguration || error == .quota || error == .serviceLimit { return }
             }
