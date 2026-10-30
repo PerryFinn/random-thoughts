@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 MODE="${1:-scenarios}"
-case "$MODE" in probes|scenarios) ;; *) echo 'Usage: test-live-openai.sh [probes|scenarios]' >&2; exit 2 ;; esac
+case "$MODE" in probes|scenarios|invalid-response) ;; *) echo 'Usage: test-live-openai.sh [probes|scenarios|invalid-response]' >&2; exit 2 ;; esac
 
 # Build and check the offline material before loading any credential.
 env -u RANDOM_THOUGHTS_LIVE_OPENAI -u OPENAI_API_KEY \

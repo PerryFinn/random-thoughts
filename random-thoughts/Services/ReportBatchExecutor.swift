@@ -126,10 +126,17 @@ nonisolated struct ReportBatchExecutor: Sendable {
             return node
         }
         let blocks = parents.map(\.block)
+        let fragments = plan.extraction.flatMap(\.fragments)
+        let coverage = step.fragments.isEmpty ? parents.reduce(into: Set<Int>()) { $0.formUnion($1.coverage) } : Set(step.fragments.map(\.id))
+        let wholeTurns = Set(Dictionary(grouping: fragments, by: \.association).compactMap { turn, parts in
+            parts.allSatisfy { coverage.contains($0.id) } ? turn : nil
+        })
+        let schema = plan.factSchema.map { wholeTurns.isEmpty ? ReportFactPayload.partialTurnSchema : $0 }
+        // The full schema reserves at least as much space as the restricted status enum.
         guard try await plan.factBudget.count(step.input, blocks: blocks) <= plan.factBudget.limit else { throw AIRequestError.budget }
         try Task.checkCancellation()
         let payload = try await access.execute(request(intent: step.fragments.isEmpty ? .mergeFacts : .extractFacts,
-            instruction: plan.factInstruction, input: step.input, schema: plan.factSchema, blocks: blocks))
+            instruction: plan.factInstruction, input: step.input, schema: schema, blocks: blocks))
         try Task.checkCancellation()
         guard try await plan.factBudget.tokenizer.count(payload) <= plan.visibleLimit else { throw AIRequestError.budget }
         var facts = try ReportFactPayload.parse(payload)
@@ -140,10 +147,8 @@ nonisolated struct ReportBatchExecutor: Sendable {
         guard parents.filter({ !$0.noRelevantContent }).allSatisfy({ referenced.contains($0.id) }) else {
             throw AIRequestError.invalidResponse
         }
-        let fragments = plan.extraction.flatMap(\.fragments)
-        let coverage = step.fragments.isEmpty ? parents.reduce(into: Set<Int>()) { $0.formUnion($1.coverage) } : Set(step.fragments.map(\.id))
         let factTurns = Set(facts.facts.flatMap(\.turns))
-        let completeTurns = factTurns.filter { turn in fragments.filter { $0.association == turn }.allSatisfy { coverage.contains($0.id) } }
+        let completeTurns = factTurns.intersection(wholeTurns)
         var failed = false
         for index in facts.facts.indices {
             let fact = facts.facts[index]

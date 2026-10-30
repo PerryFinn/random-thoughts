@@ -36,55 +36,57 @@ struct LiveOpenAISemanticTests {
             guard qualified else { return }
             qualifiedServices.append(flow.savedAIService)
         }
-        guard variables["RANDOM_THOUGHTS_LIVE_MODE"] == "scenarios" else { return }
+        let mode = variables["RANDOM_THOUGHTS_LIVE_MODE"]
+        guard mode == "scenarios" || mode == "invalid-response" else { return }
         let scenarios = try ReportAcceptanceScenario.loadAll()
+        let selected = qualifiedServices.flatMap { service in
+            scenarios.filter { scenario in
+                mode == "scenarios" || scenario.id == "S07" || service.configuration.service == .chatCompletions && scenario.id == "S08"
+            }.map { (service, $0) }
+        }
         var plans: [String: LivePlan] = [:]
-        for service in qualifiedServices {
-            for scenario in scenarios {
-                let plan = try await LivePlan.make(scenario, service: service, credential: key)
-                plans[plan.id] = plan
-            }
+        for (service, scenario) in selected {
+            let plan = try await LivePlan.make(scenario, service: service, credential: key)
+            plans[plan.id] = plan
         }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(plans).write(to: root.appendingPathComponent("plans.json"))
         let minimum = plans.values.reduce(0) { $0 + $1.minimumRequests * 2 }
         let maximum = plans.values.reduce(0) { $0 + $1.maximumRequests * 2 }
-        print("LIVE PLAN generation HTTP=\(minimum)...\(maximum); tasks=32; no automatic retries")
-        for service in qualifiedServices {
-            for scenario in scenarios {
-                let plan = try #require(plans["\(service.configuration.service.rawValue)-\(scenario.id)"])
-                for repetition in 1...2 {
-                    let id = "\(plan.id)-\(repetition)"
-                    let access = LiveOpenAIAccess(requestLimit: plan.maximumRequests)
-                    let environment = ReportFlowTestEnvironment()
-                    environment.aiAccess = access
-                    let flow = try await scenario.prepare(environment: environment, service: service)
-                    let started = Date()
-                    flow.send(.generateReport); await flow.waitForGeneration()
-                    if let confirmation = flow.confirmation {
-                        // The user authorized this finite live acceptance run before any paid generation.
-                        guard confirmation.generationScale?.maximumRequests == plan.maximumRequests else {
-                            throw LiveOpenAIError.unexpectedConfiguration
-                        }
-                        flow.send(.confirm(confirmation.id)); await flow.waitForGeneration()
+        print("LIVE PLAN generation HTTP=\(minimum)...\(maximum); tasks=\(selected.count * 2); no automatic retries")
+        for (service, scenario) in selected {
+            let plan = try #require(plans["\(service.configuration.service.rawValue)-\(scenario.id)"])
+            for repetition in 1...2 {
+                let id = "\(plan.id)-\(repetition)"
+                let access = LiveOpenAIAccess(requestLimit: plan.maximumRequests)
+                let environment = ReportFlowTestEnvironment()
+                environment.aiAccess = access
+                let flow = try await scenario.prepare(environment: environment, service: service)
+                let started = Date()
+                flow.send(.generateReport); await flow.waitForGeneration()
+                if let confirmation = flow.confirmation {
+                    // The user authorized this finite live acceptance run before any paid generation.
+                    guard confirmation.generationScale?.maximumRequests == plan.maximumRequests else {
+                        throw LiveOpenAIError.unexpectedConfiguration
                     }
-                    let requests = await access.records
-                    let result = environment.generationEvents.last
-                    let record = LiveTaskRecord(id: id, plan: plan, seconds: Date().timeIntervalSince(started),
-                        error: flow.generationError?.rawValue, result: result?.result.rawValue ?? "unfinished",
-                        actualPath: result?.path.rawValue ?? "planning", actualMergeLayers: result?.layer ?? 0,
-                        historyDays: flow.generationSources?.historyDays.map(\.calendarDate) ?? [], requests: requests)
-                    try encoder.encode(record).write(to: root.appendingPathComponent("\(id).json"))
-                    if flow.hasDraft {
-                        guard !flow.body.contains(key) else { throw LiveOpenAIError.unexpectedConfiguration }
-                        // String's atomic writer may create an item-replacement directory outside this sandbox.
-                        try Data(flow.body.utf8).write(to: root.appendingPathComponent("\(id).md"))
-                    }
-                    print("LIVE \(id) result=\(record.result) error=\(record.error ?? "none") HTTP=\(requests.count) layers=\(record.actualMergeLayers)")
-                    #expect(flow.hasDraft && flow.generationError == nil)
-                    // Configuration/credit failures invalidate every dependent task; do not spend more on them.
-                    if let error = flow.generationError, error.invalidatesConfiguration || error == .quota || error == .serviceLimit { return }
+                    flow.send(.confirm(confirmation.id)); await flow.waitForGeneration()
                 }
+                let requests = await access.records
+                let result = environment.generationEvents.last
+                let record = LiveTaskRecord(id: id, plan: plan, seconds: Date().timeIntervalSince(started),
+                    error: flow.generationError?.rawValue, result: result?.result.rawValue ?? "unfinished",
+                    actualPath: result?.path.rawValue ?? "planning", actualMergeLayers: result?.layer ?? 0,
+                    historyDays: flow.generationSources?.historyDays.map(\.calendarDate) ?? [], requests: requests)
+                try encoder.encode(record).write(to: root.appendingPathComponent("\(id).json"))
+                if flow.hasDraft {
+                    guard !flow.body.contains(key) else { throw LiveOpenAIError.unexpectedConfiguration }
+                    // String's atomic writer may create an item-replacement directory outside this sandbox.
+                    try Data(flow.body.utf8).write(to: root.appendingPathComponent("\(id).md"))
+                }
+                print("LIVE \(id) result=\(record.result) error=\(record.error ?? "none") HTTP=\(requests.count) layers=\(record.actualMergeLayers)")
+                #expect(flow.hasDraft && flow.generationError == nil)
+                // Configuration/credit failures invalidate every dependent task; do not spend more on them.
+                if let error = flow.generationError, error.invalidatesConfiguration || error == .quota || error == .serviceLimit { return }
             }
         }
     }

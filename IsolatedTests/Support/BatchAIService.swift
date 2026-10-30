@@ -4,7 +4,8 @@ import Foundation
 actor BatchAIService {
     enum Mode: String, Sendable {
         case compact, dense, missingCoverage, duplicateCoverage, invalidReference, wrongTurn
-        case partialCompletion, oversized, malformed, duplicateFields, eraseOnMerge, unreduced, noRelevant, privateSummary
+        case partialCompletion, numericTurn, schemaCompletion, denseSchemaCompletion, schemaAssociation
+        case oversized, malformed, duplicateFields, eraseOnMerge, unreduced, noRelevant, privateSummary
     }
     private(set) var requests: [AIRequest] = []
     private(set) var cancelled = 0
@@ -80,7 +81,7 @@ actor BatchAIService {
                 for fact in node["facts"] as! [[String: Any]] { turns.formUnion(fact["turns"] as! [String]) }
             }
             let visible = input["visibleBudget"] as! Int
-            let padded = mode == .dense || mode == .eraseOnMerge || mode == .unreduced
+            let padded = mode == .dense || mode == .denseSchemaCompletion || mode == .eraseOnMerge || mode == .unreduced
             let compactFirstGroup = mode == .unreduced && !isMerge && (ids.first ?? 0) <= 3
             let expand = padded && !compactFirstGroup && (!isMerge || mode == .unreduced)
             var summary = expand ? String(repeating: " factual", count: max(1, visible - 220)) : "合成进展，整轮结果尚待全部片段整合。"
@@ -88,14 +89,32 @@ actor BatchAIService {
             var references = ids
             if mode == .invalidReference { references = [-999] }
             if mode == .wrongTurn { turns = ["999/999"] }
+            if mode == .numericTurn { turns = Set(references.map(String.init)) }
             if mode == .missingCoverage { ids = Array(ids.dropLast()) }
             if mode == .duplicateCoverage { ids += ids.prefix(1) }
             if mode == .malformed { return "not a fact payload" }
             if mode == .oversized { return String(repeating: " TOO_LARGE", count: visible * 2) }
             if mode == .duplicateFields { return "{\"covered\":[],\"covered\":[],\"facts\":[],\"noRelevantContent\":true}" }
             let erased = mode == .eraseOnMerge && isMerge || mode == .noRelevant
+            let schema = try request.schema.map { try JSONSerialization.jsonObject(with: Data($0.utf8)) as! [String: Any] }
+            let rootProperties = schema?["properties"] as? [String: Any]
+            let factArray = rootProperties?["facts"] as? [String: Any]
+            let factObject = factArray?["items"] as? [String: Any]
+            let properties = factObject?["properties"] as? [String: Any]
+            let statuses = (properties?["status"] as? [String: Any])?["enum"] as? [String] ?? []
+            let turnItems = (properties?["turns"] as? [String: Any])?["items"] as? [String: Any]
+            if mode == .schemaAssociation {
+                let numeric = Set(references.map(String.init))
+                if let pattern = turnItems?["pattern"] as? String {
+                    guard turns.allSatisfy({ $0.range(of: pattern, options: .regularExpression)?.lowerBound == $0.startIndex }) else {
+                        throw AIRequestError.invalidResponse
+                    }
+                    if numeric.allSatisfy({ $0.range(of: pattern, options: .regularExpression) != nil }) { turns = numeric }
+                } else { turns = numeric }
+            }
+            let confirmed = mode == .partialCompletion || [.schemaCompletion, .denseSchemaCompletion].contains(mode) && statuses.contains("confirmed")
             let facts: [[String: Any]] = erased ? [] : [["references": references, "turns": turns.sorted(),
-                "status": mode == .partialCompletion ? "confirmed" : "uncertain", "summary": summary]]
+                "status": confirmed ? "confirmed" : "uncertain", "summary": summary]]
             return String(decoding: try JSONSerialization.data(withJSONObject: ["covered": ids,
                 "noRelevantContent": facts.isEmpty, "facts": facts], options: [.sortedKeys]), as: UTF8.self)
         }

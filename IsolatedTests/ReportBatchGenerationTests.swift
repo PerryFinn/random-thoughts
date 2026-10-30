@@ -175,7 +175,7 @@ struct ReportBatchGenerationTests {
     }
 
     @Test(arguments: [BatchAIService.Mode.missingCoverage, .duplicateCoverage, .invalidReference, .wrongTurn,
-                      .partialCompletion, .oversized, .malformed, .duplicateFields])
+                      .partialCompletion, .numericTurn, .oversized, .malformed, .duplicateFields])
     func invalidIntermediateResultsNeverBecomePartialDrafts(_ mode: BatchAIService.Mode) async throws {
         let environment = ReportFlowTestEnvironment(), access = BatchAIService(mode: mode)
         environment.aiAccess = access

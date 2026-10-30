@@ -8,6 +8,20 @@
 
 [#36 语义验收入口](acceptance/issue-36/README.md) 复用既有直接语义夹具，提供[固定八场景](acceptance/issue-36/scenarios.md)、判定规则、调用规模／授权清单及[三协议 48 任务空白模板](acceptance/issue-36/record-template.md)。用户补充提供 Key 并授权两个 OpenAI 协议的真实请求后，使用 `./script/test-live-openai.sh scenarios` 显式执行；默认隔离入口仍断网且跳过 live 测试，不自动加载 `.env.local`。Messages、原生应用、真实 Codex 和用户数据库操作仍不在本轮授权内，未实测项保持未完成。
 
+## #36 S07／S08 invalidResponse 修复验证（2026-10-30）
+
+基于 `bfa7d0d`，只修复分批事实请求的两项契约缺口：部分轮次仍能选择 `confirmed`、数字片段编号可冒充轮次关联。先从 CC-S07／CC-S08 的真实合成调用复现，再缩小到两片同轮／单个错误关联；`ReportFactContractTests.schemaCompliantExtractionCannotChooseTheObservedInvalidStatusOrTurn` 先因 `invalidResponse` 和缺少关联字段失败，再完成实现。`wholeTurnsKeepConfirmedAvailableWhilePartialMergesCannotChooseIt` 验证完整轮次与部分归并，`partialTurnSchemaFitsTheFullSchemaReservation` 核对三协议的双编码预留。既有坏覆盖／引用／整轮状态拒绝测试继续通过，新增数字关联拒绝参数；没有放松执行器检查或添加修复请求。
+
+| 实际命令 | 结果 |
+| --- | --- |
+| `./script/test-live-openai.sh invalid-response` | 6 任务全部成文、无 `invalidResponse`；6 笔探测＋74 笔生成，无错误／取消／重试。Agent 语义复核仍为 1 降级通过、5 失败，逐次结果及全部诊断尝试见[记录](acceptance/issue-36/live-openai.md)，原 P01–P03 保留。 |
+| `./script/test-isolated.sh --configuration Debug` | 58 套件／279 项登记，两个性能入口和 live 共 3 项跳过，276 项执行通过；无 Swift 编译警告。 |
+| `./script/test-isolated.sh --configuration Release` | 同样 58 套件／279 项登记、3 项跳过，276 项执行通过；无 Swift 编译警告。 |
+| `./script/build.sh --configuration Debug` | `BUILD SUCCEEDED`，没有启动应用；保留既有 CoreDevice／CoreSimulator 环境诊断及 AppIntents 元数据跳过提示。 |
+| `bash -n script/test-live-openai.sh`、Markdown 本地链接与 `git diff --check` | 通过。 |
+
+临时重放测试、诊断模式、响应采集及 `[DEBUG-36]` 插桩已删除；默认测试仍不读取 Key 文件或调用真实服务。没有删除数据库或用户内容，没有兼容／迁移。未启动应用、未读真实 Codex、未操作用户数据库；原工程排序改动保留并排除。新增计划、关键阻塞语义及 S08 多层覆盖未在本轮修复，#36／父 #20 仍未完成。不推送、不评论、不关票。
+
 ## #36 OpenAI 真实调用与验收入口（2026-10-30）
 
 基于 `9c5e5b1` 增加显式 hostless 真实调用入口，复用生产统一流程、AI Adapter 和完整 v1 合成材料；没有改生产生成指令、校验、协议或存储。两个官方 OpenAI 组合各跑八场景两次，实际 32 任务、88 笔 HTTP 尝试（含配置探测、取消及一次采集失败后的重跑）。逐次 Agent 文本复核为 12 通过、5 降级、15 失败，详见[真实调用记录](acceptance/issue-36/live-openai.md)；运行时结构通过不能替代语义通过。

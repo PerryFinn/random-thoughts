@@ -32,11 +32,12 @@ nonisolated struct ReportInputFragment: Encodable, Sendable {
     let parts: Int
     let user: String
     let finalAnswer: String?
-    var association: String { "\(session)/\(order)" }
+    let association: String
 
     init(id: Int, turn: ReportInputTurn, part: Int, parts: Int, user: String, finalAnswer: String?) {
         self.id = id; session = turn.session; order = turn.order; date = turn.date; timeZone = turn.timeZone
         result = turn.result; self.part = part; self.parts = parts; self.user = user; self.finalAnswer = finalAnswer
+        association = "\(turn.session)/\(turn.order)"
     }
 }
 
