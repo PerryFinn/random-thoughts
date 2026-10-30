@@ -97,4 +97,4 @@
 
 现有 `ReportSemanticFixtureTests.bilingualDirectFixturesKeepEvidenceBoundariesAndRenderOnlyTheSixBodies` 用人工指定响应验证指令／输入与渲染，不做模型语义判断。拆片与覆盖引用 `ReportBatchGenerationTests.confirmedPlanProcessesEveryCharacterAndCreatesOneAtomicDraft`，多层机制引用 `denseSummariesUseFiniteMergeLayersAndStopAsSoonAsTheyFit`，辅助完整单元裁剪引用 `ReportBatchContextTests.auxiliaryMaterialsStayInTheirStageAndSkipOversizedWholeUnits`。这些既有测试不等于已运行本页新增的组合材料。
 
-本页材料装载、逐协议实际路径／预算、真实能力、真实输出人工判定全部未完成；仅离线检查材料引用、固定配比和记录槽位，不能给 48 个真实任务预填通过。判定与授权遵守[验收入口](README.md)，执行后在[模板](record-template.md)逐次记录。
+本页 v1 已由 `IsolatedTests/Support/ReportAcceptanceScenario.swift` 装载，复用旧 JSON 的材料字段而不读取 `expected`。新增隔离回归通过统一流程验证缺日不补位、超长轮次用户／最终回复的全部 UTF-8 字节保全；这些仍不是模型语义证据。真实能力、逐任务路径与判定遵守[验收入口](README.md)，实际结果另行记录；Messages 和用户人工复核仍未完成。保留[空白记录模板](record-template.md)供独立验收使用，不给未执行槽位预填通过。

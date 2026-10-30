@@ -6,7 +6,22 @@
 
 [#35 验收入口](acceptance/issue-35/README.md) 提供人工清单、纯合成材料及[记录模板](acceptance/issue-35/record-template.md)。三档离线性能、硬约束及完整 App 包体增量已实测，见[离线验收记录](acceptance/issue-35/offline-performance.md)；真实 Codex、原生交互、截图及 #36 仍未完成，不能据此声明 #35 或父规格验收通过。
 
-[#36 离线验收准备](acceptance/issue-36/README.md) 复用既有直接语义夹具，补充[固定八场景](acceptance/issue-36/scenarios.md)、判定规则、调用规模／授权清单及[三协议 48 任务模板](acceptance/issue-36/record-template.md)。这里只准备材料；真实组合、场景装载／路径、能力探测和全部真实语义任务仍未完成，不以替身或结构通过代替。
+[#36 语义验收入口](acceptance/issue-36/README.md) 复用既有直接语义夹具，提供[固定八场景](acceptance/issue-36/scenarios.md)、判定规则、调用规模／授权清单及[三协议 48 任务空白模板](acceptance/issue-36/record-template.md)。用户补充提供 Key 并授权两个 OpenAI 协议的真实请求后，使用 `./script/test-live-openai.sh scenarios` 显式执行；默认隔离入口仍断网且跳过 live 测试，不自动加载 `.env.local`。Messages、原生应用、真实 Codex 和用户数据库操作仍不在本轮授权内，未实测项保持未完成。
+
+## #36 OpenAI 真实调用与验收入口（2026-10-30）
+
+基于 `9c5e5b1` 增加显式 hostless 真实调用入口，复用生产统一流程、AI Adapter 和完整 v1 合成材料；没有改生产生成指令、校验、协议或存储。两个官方 OpenAI 组合各跑八场景两次，实际 32 任务、88 笔 HTTP 尝试（含配置探测、取消及一次采集失败后的重跑）。逐次 Agent 文本复核为 12 通过、5 降级、15 失败，详见[真实调用记录](acceptance/issue-36/live-openai.md)；运行时结构通过不能替代语义通过。
+
+| 实际检查 | 结果 |
+| --- | --- |
+| `./script/test-live-openai.sh probes` | 两协议共 6 笔真实基础／流式／结构化探测通过。 |
+| `./script/test-live-openai.sh scenarios`，首次 | 6 笔探测通过；首个生成成功后，采集器原子写入越出沙盒测试根而失败；保留判定未完成。 |
+| `./script/test-live-openai.sh scenarios`，采集修正后 | 6 笔探测通过；32 任务全部尝试，24 次 `success`、2 次 `degraded`、6 次 `invalidResponse` 失败，命令退出 1；语义结论按逐份复核，不能写成测试通过。 |
+| `./script/test-isolated.sh --configuration Debug` | 57 套件／276 项登记，3 项显式入口跳过（两个性能入口及 live），273 项执行通过。 |
+| `./script/build.sh --configuration Debug` | `BUILD SUCCEEDED`，生产纯构建；未启动应用。 |
+| `bash -n script/test-live-openai.sh` | 通过。 |
+
+新增隔离检查验证缺失历史不补位、超长单轮完整 UTF-8 字节拆片、多会话当天完整处理及跳过大辅助单元后仍使用短历史。正常测试不读取环境文件、不调用外网；真实入口构建后才读入 Key，并使用单独 live profile。未执行 Messages、用户人工复核、真实 Codex、UI／系统／截图或用户数据库操作；本轮不重复无生产改动的 Release／性能测量。没有删除已有代码、文件或用户数据；起始工程排序改动保留并排除。
 
 ## #36 离线验收准备验证（2026-10-30）
 
