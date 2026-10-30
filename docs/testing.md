@@ -1,10 +1,29 @@
 # 构建与隔离测试
 
-本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#35](https://github.com/PerryFinn/random-thoughts/issues/35) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)，#29 的原生 output／SSE、配置与共享流程边界见 [responses-generation.md](responses-generation.md)，#30 的原生 Messages 内容块／thinking／SSE 边界见 [messages-generation.md](messages-generation.md)，#31 的完整输入、规模确认和受控并发见 [long-input-generation.md](long-input-generation.md)，#32 的配置竞争、取消、错误与手动重试见 [generation-lifecycle.md](generation-lifecycle.md)，#33 的内容删除、专用库迁移／重置与人工整体恢复见 [daily-report-storage-management.md](daily-report-storage-management.md)。
+本入口承接 [#21](https://github.com/PerryFinn/random-thoughts/issues/21) 至 [#36](https://github.com/PerryFinn/random-thoughts/issues/36) 和父规格 [#20](https://github.com/PerryFinn/random-thoughts/issues/20) 的测试隔离要求。生产构建、隔离 U/I/L、会启动应用的系统/UI 验收分别执行。#28 的直接生成、真实离线 tokenizer 与协议假服务边界见 [chat-completions-generation.md](chat-completions-generation.md)，#29 的原生 output／SSE、配置与共享流程边界见 [responses-generation.md](responses-generation.md)，#30 的原生 Messages 内容块／thinking／SSE 边界见 [messages-generation.md](messages-generation.md)，#31 的完整输入、规模确认和受控并发见 [long-input-generation.md](long-input-generation.md)，#32 的配置竞争、取消、错误与手动重试见 [generation-lifecycle.md](generation-lifecycle.md)，#33 的内容删除、专用库迁移／重置与人工整体恢复见 [daily-report-storage-management.md](daily-report-storage-management.md)。
 
 隐私出口、精确日志白名单和父规格最低覆盖矩阵见 [daily-report-privacy.md](daily-report-privacy.md)。
 
 [#35 验收入口](acceptance/issue-35/README.md) 提供人工清单、纯合成材料及[记录模板](acceptance/issue-35/record-template.md)。三档离线性能、硬约束及完整 App 包体增量已实测，见[离线验收记录](acceptance/issue-35/offline-performance.md)；真实 Codex、原生交互、截图及 #36 仍未完成，不能据此声明 #35 或父规格验收通过。
+
+[#36 离线验收准备](acceptance/issue-36/README.md) 复用既有直接语义夹具，补充[固定八场景](acceptance/issue-36/scenarios.md)、判定规则、调用规模／授权清单及[三协议 48 任务模板](acceptance/issue-36/record-template.md)。这里只准备材料；真实组合、场景装载／路径、能力探测和全部真实语义任务仍未完成，不以替身或结构通过代替。
+
+## #36 离线验收准备验证（2026-10-30）
+
+基于 `9d8b141cf4873837ff13c2a5b8aefe87433e3173`，只增加验收文档和模板，复用 `direct-report-semantics.json`；没有改生产代码、已有夹具、测试、依赖、工程或存储契约。#36／父 #20 正文与评论、CONTEXT、三份 ADR 及隔离入口已核对；远端 main 为 `6f41f8a`，#36 仍被 OPEN 的 #34 阻塞，#34 的 #29／#30／#32／#33 也仍 OPEN，本地前置实现均为基线祖先。此处不解除远端阻塞。
+
+| 实际检查／命令 | 结果 |
+| --- | --- |
+| 仓库文档的本地 Python 只读检查 | 固定八场景名称／语言／路径、48 个唯一槽位及每场景两次、全部未执行状态、复用夹具名称、测试名称、Markdown 本地链接／表格列数、C／O／I 算术均通过；不是新增场景的装载或语义实测。 |
+| `rtk proxy ./script/test-isolated.sh --configuration Debug --filter 'ReportSemanticFixtureTests\|ReportBatchGenerationTests\|ReportBatchContextTests'` | 3 套件、18 项通过；使用既有夹具／受控 AI，覆盖直接材料、拆片、有限归并、辅助完整单元裁剪机制。 |
+| `rtk proxy ./script/build.sh --configuration Debug` | `BUILD SUCCEEDED`；arm64 Debug 生产纯构建，不启动应用。 |
+| `rtk proxy ./script/test-isolated.sh --configuration Debug` | 55 套件、272 项登记；2 个显式性能压力入口按默认配置跳过，270 项执行通过，退出 0。 |
+
+环境为 Apple M3 Max／36GiB、arm64、macOS 27.2（26B123）、Xcode 27.1（27A9275）。没有 Swift 编译警告；生产构建保留既有 CoreDevice／CoreSimulator 环境诊断及 AppIntents 元数据跳过提示。本轮只有文档变化，不重复 Release／性能测量，也不把 #35 的既有性能结果算作 #36 新场景或真实语义证据。
+
+提交前按 `9d8b141` 评审本票四份暂存文档。Standards 为 0 项规范违反／可行动气味；Spec 初审 1 项已解决：S04 的明确审阅请求与“无计划”判定冲突，改成仅陈述冲突证据的输入后复核为 0 项未解决。最终文档检查确认 48 槽位均未执行、引用及暂存内容一致；`rtk proxy git diff --cached --check 9d8b141` 通过。
+
+没有删除已有代码、文件、数据库或用户数据。起始 `project.pbxproj` 两处排序改动保留并排除，SHA-256 仍为 `ae1aa7492c840053d3114b948f5437dc66323aee0fac302c326184e090ad6c1b`。未启动应用，未运行旧宿主／UI 测试，未访问真实 Codex／AI 或操作用户数据库。真实组合／能力、合成材料实际装载／路径／调用数及 48 次人工判定全部未完成；#36 和父 #20 不得宣称验收通过。本轮仅本地提交，不推送、不评论、不关票。
 
 ## #35 离线性能与包体验证（2026-10-30）
 
