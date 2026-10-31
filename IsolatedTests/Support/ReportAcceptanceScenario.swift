@@ -10,7 +10,10 @@ struct ReportAcceptanceScenario {
     let sessions: [CodexCandidateSession]
     let history: [SavedDailyReport]
     let day: ReportDay
-    var totalBudget: Int { ["S07", "S08", "S08-minimum", "S08-local"].contains(id) ? 12_000 : 65_536 }
+    var totalBudget: Int {
+        if id == "S08-layered" { return 9_550 }
+        return ["S07", "S08", "S08-minimum", "S08-local", "S08-state-minimum", "S08-state-local"].contains(id) ? 12_000 : 65_536
+    }
     var turns: [CodexWorkTurn] { sessions.flatMap(\.turns) }
     var userBytes: Int { turns.reduce(0) { $0 + $1.userText.utf8.count } }
     var answerBytes: Int { turns.reduce(0) { $0 + ($1.finalAnswer?.utf8.count ?? 0) } }
@@ -140,6 +143,31 @@ struct ReportAcceptanceScenario {
                 origin: session.origin, turns: turns, background: [])
         }
         return Self(id: explicitlyLocal ? "S08-local" : "S08-minimum", settings: settings, sessions: selected, history: [], day: day)
+    }
+
+    static let localSignOffScope = "Only SYNTH36-08-B16-4 is affected by the missing synthetic sign-off; the other rules are not affected. Release remains blocked."
+
+    func layeredBudget() throws -> Self {
+        guard id == "S08" else { throw CocoaError(.fileReadCorruptFile) }
+        return Self(id: "S08-layered", settings: settings, sessions: sessions, history: history, day: day)
+    }
+
+    func stateScopeMinimum(explicitlyLocal: Bool) throws -> Self {
+        guard id == "S08" else { throw CocoaError(.fileReadCorruptFile) }
+        let selected = sessions.filter { ["S08-A", "S08-B16"].contains($0.id) }.map { session in
+            let originals = session.id == "S08-A" ? session.turns : Array(session.turns.suffix(1))
+            let turns = originals.map { turn in
+                CodexWorkTurn(id: turn.id, startedAt: turn.startedAt, day: turn.day,
+                    userText: turn.userText.components(separatedBy: "\n")[0],
+                    finalAnswer: explicitlyLocal ? turn.finalAnswer?.replacingOccurrences(
+                        of: "The synthetic sign-off is still missing; release remains blocked.",
+                        with: Self.localSignOffScope) : turn.finalAnswer)
+            }
+            return CodexCandidateSession(id: session.id, title: session.title, workDirectory: session.workDirectory,
+                origin: session.origin, turns: turns, background: [])
+        }
+        return Self(id: explicitlyLocal ? "S08-state-local" : "S08-state-minimum", settings: settings,
+            sessions: selected, history: [], day: day)
     }
 
     func prepare(environment: ReportFlowTestEnvironment, service: SavedAIService) async throws -> DailyReportFlow {

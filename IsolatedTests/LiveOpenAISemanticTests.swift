@@ -4,6 +4,13 @@ import Testing
 
 @MainActor
 struct LiveOpenAISemanticTests {
+    @Test func signOffScopeSignalsDistinguishProgressIdentityFromCausalScope() {
+        #expect(hasNarrowedSignOffScope(["The synthetic sign-off is still missing; release remains blocked for SYNTH36-08-B16-4."]))
+        #expect(hasNarrowedSignOffScope(["For SYNTH36-08-B16-4, the synthetic sign-off is still missing; release remains blocked."]))
+        #expect(!hasNarrowedSignOffScope(["The synthetic sign-off is still missing; release remains blocked."]))
+        #expect(!hasNarrowedSignOffScope(["Drafted the configuration rule for SYNTH36-08-B16-4; review remains pending. The synthetic sign-off is still missing; release remains blocked."]))
+    }
+
     @Test func s08PlanningStaysWithinTheTargetedLiveCaps() async throws {
         let original = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" })
         for type in [AIServiceType.chatCompletions, .responses] {
@@ -12,11 +19,18 @@ struct LiveOpenAISemanticTests {
             let plan = try await LivePlan.make(original, service: service, credential: "SYNTHETIC_S08_PLAN_KEY")
             #expect(plan.maximumRequests <= 9 && plan.extractionRequests > 1)
             print("S08 OFFLINE \(type.rawValue) generation=\(plan.minimumRequests)...\(plan.maximumRequests) extract=\(plan.extractionRequests) merge-layers<=\(plan.maximumMergeLayers)")
+            let layered = try await LivePlan.make(original.layeredBudget(), service: service, credential: "SYNTHETIC_S08_PLAN_KEY")
+            #expect(layered.totalBudget == 9_550 && layered.outputLimit == 3_000)
+            #expect(layered.extractionRequests == 16 && layered.maximumMergeLayers == 3 && layered.maximumRequests <= 31)
+            #expect(layered.auxiliaryClippedDuringExtraction)
             if type == .chatCompletions {
                 for local in [false, true] {
                     let minimum = try await LivePlan.make(original.blockerScopeMinimum(explicitlyLocal: local),
                         service: service, credential: "SYNTHETIC_S08_PLAN_KEY")
                     #expect(minimum.minimumRequests == 1 && minimum.maximumRequests == 1 && minimum.path == "direct")
+                    let state = try await LivePlan.make(original.stateScopeMinimum(explicitlyLocal: local),
+                        service: service, credential: "SYNTHETIC_S08_PLAN_KEY")
+                    #expect(state.minimumRequests == 1 && state.maximumRequests == 1 && state.path == "direct")
                 }
             }
         }
@@ -32,9 +46,12 @@ struct LiveOpenAISemanticTests {
         let root = URL(fileURLWithPath: output, isDirectory: true)
         let mode = variables["RANDOM_THOUGHTS_LIVE_MODE"]
         let minimumScope = mode == "s08-minimum"
-        let repetitions = minimumScope ? 1 : 2
+        let stateScopeMinimum = mode == "s08-state-minimum"
+        let layeredScope = mode == "s08-layered"
+        let mergeMinimum = mode == "s08-merge-minimum"
+        let repetitions = minimumScope || stateScopeMinimum ? 1 : 2
         var qualifiedServices: [SavedAIService] = []
-        for service in minimumScope ? [.chatCompletions] : [AIServiceType.chatCompletions, .responses] {
+        for service in minimumScope || stateScopeMinimum || mergeMinimum ? [.chatCompletions] : [AIServiceType.chatCompletions, .responses] {
             let access = LiveOpenAIAccess(requestLimit: 3)
             let environment = ReportFlowTestEnvironment()
             environment.aiAccess = access
@@ -57,17 +74,108 @@ struct LiveOpenAISemanticTests {
             guard qualified else { return }
             qualifiedServices.append(flow.savedAIService)
         }
+        if mergeMinimum {
+            let source = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" })
+            var service = try #require(qualifiedServices.first)
+            service.configuration.totalBudget = try source.layeredBudget().totalBudget
+            let context = ReportGenerationContext(service: service,
+                snapshot: .init(day: source.day, sessions: source.sessions, redactionFailed: false),
+                settings: source.settings, history: source.history)
+            guard case .batched(let plan) = try await ReportGenerationPlan.build(context, credential: key,
+                tokenizer: OfflineReportTokenizer(), redact: { $0 }) else { throw LiveOpenAIError.unexpectedConfiguration }
+            let step = try #require(plan.mergeLayers.first?.first { step in
+                let fragmentIDs = Set(plan.extraction.filter { step.upstream.contains($0.id) }.flatMap(\.fragments).map(\.id))
+                return Set(step.upstream).isDisjoint(with: fragmentIDs)
+            })
+            let parents = plan.extraction.filter { step.upstream.contains($0.id) }
+            guard parents.count == 2 else { throw LiveOpenAIError.unexpectedConfiguration }
+            let access = LiveOpenAIAccess(requestLimit: 3)
+            var blocks: [String] = []
+            print("LIVE COMPONENT generation HTTP=3; two extraction nodes then one merge; no automatic retries")
+            for parent in parents {
+                let response = try await recordedComponentRequest(.init(intent: .extractFacts, configuration: service.configuration,
+                    credential: key, instruction: plan.factInstruction, input: parent.input, schema: plan.factSchema,
+                    streaming: service.validation.streaming == .supported), access: access,
+                    output: root.appendingPathComponent("merge-minimum.json"))
+                let facts = try ReportFactPayload.parse(response)
+                let turns = Set(facts.facts.flatMap(\.turns)).intersection(Set(parent.fragments.map(\.association)))
+                blocks.append(try ReportJSON.encode(ReportFactNode.Input(id: parent.id, facts: facts.facts,
+                    noRelevantContent: facts.noRelevantContent, completeTurns: turns.sorted())))
+            }
+            let response = try await recordedComponentRequest(.init(intent: .mergeFacts, configuration: service.configuration,
+                credential: key, instruction: plan.factInstruction, input: step.input, schema: plan.factSchema,
+                streaming: service.validation.streaming == .supported, additionalInputs: blocks), access: access,
+                output: root.appendingPathComponent("merge-minimum.json"))
+            let payload = try ReportFactPayload.parse(response)
+            let expected = Set(step.upstream)
+            let covered = payload.covered.count == expected.count && Set(payload.covered) == expected
+            let references = payload.facts.allSatisfy { !$0.references.isEmpty && Set($0.references).isSubset(of: expected) }
+            let retained = expected.isSubset(of: Set(payload.facts.flatMap(\.references)))
+            let associations = payload.facts.allSatisfy { fact in
+                let turns = Set(parents.filter { fact.references.contains($0.id) }.flatMap(\.fragments).map(\.association))
+                return !fact.turns.isEmpty && Set(fact.turns).isSubset(of: turns)
+            }
+            print("LIVE COMPONENT covered=\(covered) references=\(references) parentsRetained=\(retained) associations=\(associations) facts=\(payload.facts.count)")
+            #expect(covered && references && retained && associations)
+            return
+        }
+        if stateScopeMinimum {
+            let original = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" })
+            var service = try #require(qualifiedServices.first)
+            service.configuration.totalBudget = original.totalBudget
+            let context = ReportGenerationContext(service: service,
+                snapshot: .init(day: original.day, sessions: original.sessions, redactionFailed: false),
+                settings: original.settings, history: original.history)
+            guard case .batched(let plan) = try await ReportGenerationPlan.build(context, credential: key,
+                tokenizer: OfflineReportTokenizer(), redact: { $0 }) else { throw LiveOpenAIError.unexpectedConfiguration }
+            let step = try #require(plan.extraction.first { $0.fragments.contains { ($0.finalAnswer ?? "").contains("sign-off") } })
+            let inputs = try [false, true].map { local in
+                let fragments = try step.fragments.map { fragment in
+                    let turn = try #require(plan.prepared.today.first { $0.session == fragment.session && $0.order == fragment.order })
+                    let answer = local ? turn.finalAnswer?.replacingOccurrences(
+                        of: "The synthetic sign-off is still missing; release remains blocked.",
+                        with: ReportAcceptanceScenario.localSignOffScope) : turn.finalAnswer
+                    let reduced = ReportInputTurn(session: turn.session, order: turn.order, date: turn.date,
+                        timeZone: turn.timeZone, result: turn.result, user: turn.user,
+                        finalAnswer: answer, startedAt: turn.startedAt)
+                    return ReportInputFragment(id: fragment.id, turn: reduced, part: 1, parts: 1,
+                        user: reduced.user, finalAnswer: reduced.finalAnswer)
+                }
+                return try plan.input(fragments: fragments)
+            }
+            let access = LiveOpenAIAccess(requestLimit: inputs.count)
+            guard inputs.count == 2 else { throw LiveOpenAIError.unexpectedConfiguration }
+            print("LIVE COMPONENT generation HTTP=2; sign-off extraction pair; no automatic retries")
+            for (index, input) in inputs.enumerated() {
+                let response = try await recordedComponentRequest(AIRequest(intent: .extractFacts,
+                    configuration: service.configuration, credential: key, instruction: plan.factInstruction,
+                    input: input, schema: plan.factSchema, streaming: service.validation.streaming == .supported),
+                    access: access, output: root.appendingPathComponent("signoff-extract.json"))
+                let payload = try ReportFactPayload.parse(response)
+                let facts = payload.facts.map { $0.summary.lowercased() }.filter { $0.contains("sign-off") }
+                let scopePreserved = !facts.isEmpty && (index == 1
+                    ? facts.contains { $0.contains("only") && $0.contains("b16-4") && $0.contains("other rules") }
+                    : !hasNarrowedSignOffScope(facts))
+                print("LIVE COMPONENT case=\(index) scopeSignal=\(scopePreserved)")
+                #expect(scopePreserved)
+            }
+        }
         guard mode == "scenarios" || mode == "invalid-response" || mode == "s07-plans"
-                || mode == "s08-blockers" || minimumScope else { return }
+                || mode == "s08-blockers" || minimumScope || stateScopeMinimum || layeredScope else { return }
         let all = try ReportAcceptanceScenario.loadAll()
         let scenarios: [ReportAcceptanceScenario]
         if minimumScope {
             let original = try #require(all.first { $0.id == "S08" })
             scenarios = try [false, true].map { try original.blockerScopeMinimum(explicitlyLocal: $0) }
+        } else if stateScopeMinimum {
+            let original = try #require(all.first { $0.id == "S08" })
+            scenarios = try [false, true].map { try original.stateScopeMinimum(explicitlyLocal: $0) }
+        } else if layeredScope {
+            scenarios = [try #require(all.first { $0.id == "S08" }).layeredBudget()]
         } else { scenarios = all }
         let selected = qualifiedServices.flatMap { service in
             scenarios.filter { scenario in
-                if minimumScope { return true }
+                if minimumScope || stateScopeMinimum || layeredScope { return true }
                 if mode == "s08-blockers" { return scenario.id == "S08" }
                 return mode == "scenarios" || scenario.id == "S07"
                     || (mode == "invalid-response" && service.configuration.service == .chatCompletions && scenario.id == "S08")
@@ -84,6 +192,8 @@ struct LiveOpenAISemanticTests {
         let maximum = plans.values.reduce(0) { $0 + $1.maximumRequests * repetitions }
         if minimumScope, maximum != 2 { throw LiveOpenAIError.unexpectedConfiguration }
         if mode == "s08-blockers", maximum > 36 { throw LiveOpenAIError.unexpectedConfiguration }
+        if stateScopeMinimum, maximum != 2 { throw LiveOpenAIError.unexpectedConfiguration }
+        if layeredScope, maximum > 124 { throw LiveOpenAIError.unexpectedConfiguration }
         print("LIVE PLAN generation HTTP=\(minimum)...\(maximum); tasks=\(selected.count * repetitions); no automatic retries")
         for (service, scenario) in selected {
             let plan = try #require(plans["\(service.configuration.service.rawValue)-\(scenario.id)"])
@@ -116,8 +226,18 @@ struct LiveOpenAISemanticTests {
                 }
                 print("LIVE \(id) result=\(record.result) error=\(record.error ?? "none") HTTP=\(requests.count) layers=\(record.actualMergeLayers)")
                 #expect(flow.hasDraft && flow.generationError == nil)
-                if mode == "s08-blockers" || minimumScope {
+                if stateScopeMinimum || mode == "s08-blockers" || layeredScope {
+                    expectS08SignOffSignals(flow.body, explicitlyLocal: scenario.id == "S08-state-local")
+                    expectS08CompletionSignals(flow.body)
+                }
+                if mode == "s08-blockers" || minimumScope || layeredScope {
                     expectS08ScopeSignals(flow.body, explicitlyLocal: scenario.id == "S08-local")
+                }
+                if layeredScope {
+                    #expect(record.actualMergeLayers >= 2)
+                    let extraction = requests.filter { $0.intent == "extract" }
+                    #expect(extraction.reduce(0) { $0 + $1.userBytes } == scenario.userBytes)
+                    #expect(extraction.reduce(0) { $0 + $1.answerBytes } == scenario.answerBytes)
                 }
                 if mode == "s07-plans" {
                     let plans = flow.body.components(separatedBy: "## 明日计划\n\n").last
@@ -133,6 +253,52 @@ struct LiveOpenAISemanticTests {
 }
 
 private enum LiveOpenAIError: Error { case missingEnvironment, unexpectedConfiguration }
+
+@MainActor
+private func recordedComponentRequest(_ request: AIRequest, access: LiveOpenAIAccess, output: URL) async throws -> String {
+    let response: Result<String, any Error>
+    do { response = .success(try await access.execute(request)) }
+    catch { response = .failure(error) }
+    try JSONEncoder().encode(["requests": await access.records]).write(to: output)
+    return try response.get()
+}
+
+private func expectS08CompletionSignals(_ report: String) {
+    let overview = report.lowercased().components(separatedBy: "## today’s overview\n\n").last?
+        .components(separatedBy: "\n\n## completed work").first ?? ""
+    let widened = overview.range(of: #"settings work (?:is |was |has been )?complete(?:d)?\b|(?:two|both|2) (?:same-day )?work items (?:were |are )?completed"#,
+        options: .regularExpression) != nil
+    #expect(!widened)
+    let body = report.lowercased()
+    let downgraded = ["document was drafted", "drafted the document", "document remains a draft", "document draft"]
+    #expect(downgraded.allSatisfy { !body.contains($0) })
+    #expect(overview.components(separatedBy: "\n").filter { $0.hasPrefix("- ") }.count <= 3)
+}
+
+private func hasNarrowedSignOffScope(_ texts: [String]) -> Bool {
+    texts.contains { text in
+        let body = text.lowercased()
+        let explicit = ["release remains blocked for synth36-08-b16", "release is blocked for synth36-08-b16",
+            "sign-off for synth36-08-b16", "sign-off is still missing for synth36-08-b16",
+            "b16-4 remains blocked", "b16-4 release", "b16-4's release"]
+        if explicit.contains(where: body.contains) { return true }
+        return body.components(separatedBy: ". ").contains { sentence in
+            sentence.contains("sign-off") && sentence.contains("b16")
+                && !sentence.contains("draft") && !sentence.contains("review")
+        }
+    }
+}
+
+private func expectS08SignOffSignals(_ report: String, explicitlyLocal: Bool = false) {
+    let lines = report.lowercased().components(separatedBy: "\n").filter { $0.contains("sign-off") }
+    #expect(!lines.isEmpty)
+    if explicitlyLocal {
+        #expect(lines.contains { $0.contains("only") && $0.contains("b16-4") })
+    } else {
+        let preserved = !hasNarrowedSignOffScope(lines)
+        #expect(preserved)
+    }
+}
 
 // Fixed v1 phrases only; passing these signals never replaces review of every section.
 private func expectS08ScopeSignals(_ report: String, explicitlyLocal: Bool) {
@@ -230,6 +396,8 @@ private actor LiveOpenAIAccess: AIServiceAccess {
         let intent: String
         let inputTokens: Int
         let inputLimit: Int
+        let outputTokens: Int?
+        let visibleBudget: Int?
         let backgroundUnits: Int
         let historyUnits: Int
         let fragments: Int
@@ -264,6 +432,7 @@ private actor LiveOpenAIAccess: AIServiceAccess {
         let input = (try? JSONSerialization.jsonObject(with: Data(request.input.utf8))) as? [String: Any]
         let background = (input?["background"] as? [Any])?.count ?? 0
         let history = (input?["historicalReports"] as? [Any])?.count ?? 0
+        let visibleBudget = input?["visibleBudget"] as? Int
         let fragments = (input?["fragments"] as? [[String: Any]]) ?? []
         let turns = fragments.isEmpty ? (input?["today"] as? [[String: Any]]) ?? [] : fragments
         let userBytes = turns.reduce(0) { $0 + (($1["user"] as? String)?.utf8.count ?? 0) }
@@ -271,12 +440,15 @@ private actor LiveOpenAIAccess: AIServiceAccess {
         let start = Date()
         do {
             let result = try await client.execute(request)
+            let outputTokens = try await OfflineReportTokenizer().count(result)
             records.append(.init(intent: intent, inputTokens: tokens, inputLimit: budget.limit,
+                outputTokens: outputTokens, visibleBudget: visibleBudget,
                 backgroundUnits: background, historyUnits: history, fragments: fragments.count, userBytes: userBytes, answerBytes: answerBytes,
                 seconds: Date().timeIntervalSince(start), error: nil))
             return result
         } catch {
             records.append(.init(intent: intent, inputTokens: tokens, inputLimit: budget.limit,
+                outputTokens: nil, visibleBudget: visibleBudget,
                 backgroundUnits: background, historyUnits: history, fragments: fragments.count, userBytes: userBytes, answerBytes: answerBytes,
                 seconds: Date().timeIntervalSince(start), error: AIRequestError.reason(for: error).rawValue))
             throw error

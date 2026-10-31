@@ -93,6 +93,8 @@
 
 必须分别记录计划与实际提取／归并层数、成文、辅助单元实际使用／裁剪及请求数；实际要覆盖至少两层事实归并和受控辅助裁剪，主要成果／关键阻塞完整才可降级通过。真实摘要若提前可成文，应按产品规则立即成文，该次真实输出仍留判定，但多层场景覆盖保持未完成；不能用假服务的稠密摘要或计划层数冒充已走过的真实层数。辅助裁剪不允许隐藏当天输入，也不能被用于接受硬违规。
 
+`S08-layered` 是同一材料的独立预算变体，保持所有会话、轮次、辅助材料及日期逐字一致，只将 C 从 12,000 改为 9,550，O 仍为 3,000；较早 C＝8,000 的失败不覆盖或改记。按父规格允许的较小预算自然增加分批深度；必须记录实际层数，不能以预算规划替代多层实测。原 v1 配置及其全部结果继续保留，不同预算不能混记。
+
 ## 离线证据与待执行项
 
 现有 `ReportSemanticFixtureTests.bilingualDirectFixturesKeepEvidenceBoundariesAndRenderOnlyTheSixBodies` 用人工指定响应验证指令／输入与渲染，不做模型语义判断。拆片与覆盖引用 `ReportBatchGenerationTests.confirmedPlanProcessesEveryCharacterAndCreatesOneAtomicDraft`，多层机制引用 `denseSummariesUseFiniteMergeLayersAndStopAsSoonAsTheyFit`，辅助完整单元裁剪引用 `ReportBatchContextTests.auxiliaryMaterialsStayInTheirStageAndSkipOversizedWholeUnits`。这些既有测试不等于已运行本页新增的组合材料。

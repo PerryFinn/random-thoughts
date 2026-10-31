@@ -2,10 +2,22 @@ import Foundation
 
 nonisolated struct ReportFactNode: Sendable {
     struct Input: Encodable {
+        struct Evidence: Encodable {
+            let turns: [String]
+            let status: ReportFactPayload.Fact.Status
+            let summary: String
+        }
         let id: Int
-        let facts: [ReportFactPayload.Fact]
+        let facts: [Evidence]
         let noRelevantContent: Bool
         let completeTurns: [String]
+
+        init(id: Int, facts: [ReportFactPayload.Fact], noRelevantContent: Bool, completeTurns: [String]) {
+            self.id = id
+            self.facts = facts.map { Evidence(turns: $0.turns, status: $0.status, summary: $0.summary) }
+            self.noRelevantContent = noRelevantContent
+            self.completeTurns = completeTurns
+        }
     }
     let id: Int
     let coverage: Set<Int>

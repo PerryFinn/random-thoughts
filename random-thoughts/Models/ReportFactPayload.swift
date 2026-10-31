@@ -88,14 +88,20 @@ nonisolated struct ReportFactPayload: Codable, Sendable {
         Exactly these fields. This is NOT a six-section report. No fences or extra text.
         covered must include EVERY supplied fragment ID (extraction) or upstream node ID (merge), exactly once.
         Each fact references only valid direct upstream IDs and their session/order associations.
+        For merge, each output reference is the enclosing node.id; NEVER use turn numbers or earlier-stage IDs.
+        Input node facts contain turns/status/summary without their already-validated old references. Preserve turns unchanged.
+        Example only: node id 7 with turns ["4/2"] becomes references [7] and turns ["4/2"].
         turns copies the exact association strings from the referenced fragments or upstream facts, e.g. "1/1".
         NEVER use fragment IDs, session numbers or local ordinals as turns ("1" is invalid; "1/1" is valid).
         noRelevantContent is true exactly when facts is empty; this means processed, never skipped.
         Preserve goals/objects, actions and status changes, outputs, decisions/reasons, blockers/conflicts and accepted plans.
+        Keep outputs with different completion states in separate facts; pending work NEVER downgrades an explicitly completed output.
         Keep each causal blocker in a SEPARATE fact from draft/progress/review results, even when reported together.
         Emit all causal blockers before compressed progress, even if mentioned once; an unspecified scope NEVER makes a stated blocker irrelevant or uncertain.
         Preserve its original cause, affected-scope wording and certainty; its source association does NOT define affected scope.
-        If the affected set is not explicit, retain its pronouns and state that affected scope is unspecified; NEVER assign the reporting item.
+        A blocker summary contains ONLY its causal statement and explicit affected-scope assertions, never progress or reporting labels.
+        For matching source/output languages copy these statements verbatim; otherwise translate faithfully without adding subjects or affected items.
+        If no scope assertion exists, append "affected scope unspecified", including when the statement has no pronoun; NEVER add an item prefix or suffix.
         Example only, NOT evidence: "Drafted change K2. A shared dependency blocks landing these changes."
         Separate summaries: "A shared dependency blocks landing these changes; affected scope unspecified." and "Drafted change K2."
         Do not invent absent fields, completion, metrics, impact, reasons or actions. Merge work items only with explicit relations.
@@ -108,7 +114,7 @@ nonisolated struct ReportFactPayload: Codable, Sendable {
         Preserve cross-fragment status changes; incomplete/contradictory evidence stays uncertain. Final replies alone are not proof.
         Plans require user commitments, requests, accepted actions or explicit TODOs; retain actual dates.
         Output must fit visibleBudget, including JSON. The normalized node block (id/facts/noRelevantContent/completeTurns)
-        must also fit visibleBudget; it includes the fact fields above. This budget is separate from output/thinking O.
+        must also fit visibleBudget; its facts contain turns/status/summary only. This budget is separate from output/thinking O.
         Compress without losing major achievements or blockers. No unsupported semantic repair or six-section formatting.
         """
     }

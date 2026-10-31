@@ -103,7 +103,7 @@ nonisolated struct ReportBatchPlan: Sendable {
         let markerCost = try await tokenizer.count(marker)
         let visibleLimit = min(configuration.outputLimit / 2,
             min(factBudget.limit - factBudget.fixed - markerCost, finalBudget.limit - finalBudget.fixed - markerCost) / 2)
-        let minimumNode = #"{"id":1,"facts":[{"references":[1],"turns":["1/1"],"status":"uncertain","summary":"fact"}],"noRelevantContent":false,"completeTurns":["1/1"]}"#
+        let minimumNode = #"{"id":1,"facts":[{"turns":["1/1"],"status":"uncertain","summary":"fact"}],"noRelevantContent":false,"completeTurns":["1/1"]}"#
         guard visibleLimit > (try await tokenizer.count(minimumNode)) else { throw AIRequestError.budget }
 
         @Sendable func extractionInput(_ fragments: [ReportInputFragment], _ background: [ReportInputTurn] = []) throws -> String {

@@ -44,15 +44,16 @@ nonisolated struct ReportInputPlan: Sendable {
         No wrapper, markdown fences, extra fields or text. No level 1 or 2 / setext headings inside fields.
         Organize achievements and actions by work items: only merge sessions when goal, object and outcome relation are explicit.
         Professional, neutral, concise; no first-person / AI narrative. Overview has at most three bullets.
+        Preserve each object's exact result in EVERY section. A completed output proves only that output complete, never its larger work item, system or project. Never downgrade an explicitly completed output to a draft because other work remains pending.
         Keep major achievements, deliverables, decisions/reasons, progress, blockers, risks and explicit next actions.
         Preserve every key blocker, its cause, stated affected scope and certainty even if mentioned only once.
         Where a blocker is reported is NOT its affected scope. Distinct work items can share a blocker without being merged.
         Do not narrow a shared or unspecified scope to the reporting item/session, or invent a wider affected set.
         Status-only blocker facts belong in risks, NEVER invent achievements, decisions or reasons from them. Keep explicitly evidenced decisions and their reasons.
         A blocker without explicit affected-scope assertions is stated in risks ONLY, unless part of an explicitly evidenced decision/reason. Do not repeat status-only blockers in overview/completed/deliverables.
-        Use each blocker's original causal wording in risks and any affected scope explicitly linked to it in the evidence. NEVER derive scope just from nearby IDs or reporting location.
+        Use each blocker's original causal sentences in risks, copied verbatim for matching languages or faithfully translated. Keep explicitly linked scope, including separate source sentences; NEVER add reporting labels, subjects or affected items.
         Draft/review item labels and fact references are NOT affected-scope assertions, even when preceding a blocker in the same summary.
-        Without an explicit scope assertion, keep pronouns such as "these rules" unchanged; NEVER replace them with those item/family IDs.
+        Unqualified statuses retain their original subject/object/pronouns. Example only: beside "Drafted R", "Approval missing; release blocked" stays ONLY in risks, NEVER "R's release blocked".
         Examples illustrate wording only; NEVER include their facts in the report.
         Input: changes J1, J2 and K1 were drafted; J2 reports "A shared dependency blocks landing these changes."
         Correct risk: "A shared dependency blocks landing these changes." NOT "J2/J changes are blocked" or "all changes are blocked".

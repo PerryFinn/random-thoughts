@@ -4,6 +4,35 @@ import Testing
 
 @MainActor
 struct ReportAcceptanceScenarioTests {
+    @Test func layeredBudgetPreservesEveryTodayAndAuxiliaryUnit() throws {
+        let source = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" })
+        let layered = try source.layeredBudget()
+        #expect(layered.id == "S08-layered" && layered.totalBudget == 9_550)
+        #expect(source.totalBudget == 12_000)
+        #expect(layered.sessions == source.sessions && layered.history == source.history)
+        #expect(layered.settings == source.settings && layered.day == source.day)
+        #expect(layered.userBytes == 80_648 && layered.answerBytes == 6_833 && layered.turns.count == 65)
+    }
+
+    @Test func stateScopeMinimumKeepsTheCompletedDocumentSeparateFromThePendingRule() throws {
+        let source = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" })
+        let minimum = try source.stateScopeMinimum(explicitlyLocal: false)
+        let local = try source.stateScopeMinimum(explicitlyLocal: true)
+        let originals = [try #require(source.turns.first), try #require(source.turns.last)]
+        #expect(minimum.sessions.map(\.id) == ["S08-A", "S08-B16"])
+        #expect(minimum.turns.map(\.id) == originals.map(\.id))
+        #expect(minimum.turns.map(\.startedAt) == originals.map(\.startedAt))
+        #expect(minimum.turns.map(\.day) == originals.map(\.day))
+        #expect(minimum.turns.map(\.finalAnswer) == originals.map(\.finalAnswer))
+        #expect(minimum.turns.map(\.userText) == originals.map { $0.userText.components(separatedBy: "\n")[0] })
+        #expect(local.turns.map(\.userText) == minimum.turns.map(\.userText))
+        #expect(local.turns[0].finalAnswer == minimum.turns[0].finalAnswer)
+        #expect(local.turns[1].finalAnswer == minimum.turns[1].finalAnswer?.replacingOccurrences(
+            of: "The synthetic sign-off is still missing; release remains blocked.", with: ReportAcceptanceScenario.localSignOffScope))
+        #expect(minimum.totalBudget == source.totalBudget && local.totalBudget == source.totalBudget)
+        #expect(minimum.history.isEmpty && minimum.sessions.allSatisfy { $0.background.isEmpty })
+    }
+
     @Test func blockerScopeMinimumChangesOnlyTheExplicitLocalScopeClause() throws {
         let source = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" })
         let unspecified = try source.blockerScopeMinimum(explicitlyLocal: false)

@@ -4,6 +4,18 @@ import Testing
 
 @MainActor
 struct ReportFactContractTests {
+    @Test func nodeEvidenceDropsValidatedOldReferencesButPreservesFactsAndWholeTurns() throws {
+        let fact = ReportFactPayload.Fact(references: [23], turns: ["4/2"], status: .unconfirmed, summary: "A draft remains pending.")
+        let block = try ReportJSON.encode(ReportFactNode.Input(id: 7, facts: [fact], noRelevantContent: false, completeTurns: ["4/2"]))
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(block.utf8)) as? [String: Any])
+        let evidence = try #require((object["facts"] as? [[String: Any]])?.first)
+        #expect(Set(evidence.keys) == ["turns", "status", "summary"])
+        #expect(object["id"] as? Int == 7 && object["completeTurns"] as? [String] == ["4/2"])
+        #expect(evidence["turns"] as? [String] == fact.turns)
+        #expect(evidence["status"] as? String == fact.status.rawValue && evidence["summary"] as? String == fact.summary)
+        #expect(!block.contains("23"))
+    }
+
     @Test(arguments: AIServiceType.allCases)
     func partialTurnSchemaFitsTheFullSchemaReservation(_ service: AIServiceType) async throws {
         let tokenizer = OfflineReportTokenizer(), configuration = AIServiceConfiguration(service: service)
@@ -29,12 +41,27 @@ struct ReportFactContractTests {
             let requests = await access.requests
             let facts = requests.filter { if case .composeReport = $0.intent { false } else { true } }
             #expect(!facts.isEmpty)
+            #expect(facts.allSatisfy { $0.instruction.contains("Keep outputs with different completion states in separate facts; pending work NEVER downgrades an explicitly completed output") })
+            #expect(facts.allSatisfy { $0.instruction.contains("A blocker summary contains ONLY its causal statement and explicit affected-scope assertions, never progress or reporting labels") })
+            #expect(facts.allSatisfy { $0.instruction.contains("For matching source/output languages copy these statements verbatim; otherwise translate faithfully without adding subjects or affected items") })
             #expect(facts.allSatisfy { $0.schema == (split ? ReportFactPayload.partialTurnSchema : ReportFactPayload.schema) })
             #expect(facts.allSatisfy { $0.instruction.contains("Keep each causal blocker in a SEPARATE fact from draft/progress/review results") })
             #expect(facts.allSatisfy { $0.instruction.contains("its source association does NOT define affected scope") })
             #expect(facts.allSatisfy { $0.instruction.contains("Emit all causal blockers before compressed progress, even if mentioned once") })
-            #expect(facts.allSatisfy { $0.instruction.contains("retain its pronouns and state that affected scope is unspecified") })
-            if split { #expect(facts.contains { if case .mergeFacts = $0.intent { true } else { false } }) }
+            #expect(facts.allSatisfy { $0.instruction.contains("including when the statement has no pronoun; NEVER add an item prefix or suffix") })
+            if split {
+                let merges = facts.filter { if case .mergeFacts = $0.intent { true } else { false } }
+                #expect(!merges.isEmpty)
+                #expect(merges.allSatisfy { $0.instruction.contains("For merge, each output reference is the enclosing node.id; NEVER use turn numbers or earlier-stage IDs") })
+                #expect(merges.allSatisfy { $0.instruction.contains("node id 7 with turns [\"4/2\"] becomes references [7] and turns [\"4/2\"]") })
+                for request in merges {
+                    for block in request.additionalInputs {
+                        let node = try #require(try JSONSerialization.jsonObject(with: Data(block.utf8)) as? [String: Any])
+                        let evidence = try #require(node["facts"] as? [[String: Any]])
+                        #expect(evidence.allSatisfy { Set($0.keys) == ["turns", "status", "summary"] })
+                    }
+                }
+            }
         }
     }
 
