@@ -60,6 +60,9 @@ struct ReportSemanticFixtureTests {
 }
 
 func expectBlockerEvidenceRules(in instruction: String) {
+    #expect(instruction.contains("Empty sections are empty strings, never empty list markers or placeholder labels"))
+    #expect(instruction.contains("Keep each cause paired ONLY with its stated blocked action/object in EVERY section; NEVER pool independent causes and outcomes into a shared causal claim"))
+    #expect(instruction.contains("\"Gate A blocks integration. Gate B blocks release.\" MUST NOT become \"A and B block integration and release\""))
     #expect(instruction.contains("Preserve every key blocker, its cause, stated affected scope and certainty even if mentioned only once"))
     #expect(instruction.contains("Where a blocker is reported is NOT its affected scope"))
     #expect(instruction.contains("Do not narrow a shared or unspecified scope to the reporting item/session, or invent a wider affected set"))

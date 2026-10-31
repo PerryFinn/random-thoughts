@@ -4,6 +4,22 @@ import Testing
 
 @MainActor
 struct LiveOpenAISemanticTests {
+    @Test func causalitySignalsRejectTheObservedReleaseCauseWithoutRejectingSeparateBlockers() {
+        #expect(hasCrossedS08BlockerCause("Release remains blocked by missing synthetic sign-off and unresolved synthetic schema mismatch."))
+        #expect(hasCrossedS08BlockerCause("The schema mismatch blocks release."))
+        #expect(!hasCrossedS08BlockerCause("The shared synthetic schema mismatch blocks integrating these rules. The synthetic sign-off is still missing; release remains blocked."))
+        #expect(!hasCrossedS08BlockerCause("Schema mismatch blocks integration; missing sign-off blocks release."))
+        #expect(!hasCrossedS08BlockerCause("Schema mismatch blocks integration and missing sign-off blocks release."))
+    }
+
+    @Test func riskInventorySignalDistinguishesGroupedStatusesFromRepeatedOutputs() throws {
+        let source = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" })
+        let inventory = source.sessions.dropFirst().flatMap(\.turns).compactMap(\.finalAnswer).joined(separator: "\n")
+        #expect(hasFullS08RiskInventory("## Issues & Risks\n\n" + inventory))
+        #expect(!hasFullS08RiskInventory("## Issues & Risks\n\nRules SYNTH36-08-B01-1 through SYNTH36-08-B16-4 remain pending review."))
+        #expect(!hasFullS08RiskInventory("## Completed Work\n\n" + inventory + "\n\n## Issues & Risks\n\nApproval remains missing."))
+    }
+
     @Test func signOffScopeSignalsDistinguishProgressIdentityFromCausalScope() {
         #expect(hasNarrowedSignOffScope(["The synthetic sign-off is still missing; release remains blocked for SYNTH36-08-B16-4."]))
         #expect(hasNarrowedSignOffScope(["For SYNTH36-08-B16-4, the synthetic sign-off is still missing; release remains blocked."]))
@@ -49,9 +65,14 @@ struct LiveOpenAISemanticTests {
         let stateScopeMinimum = mode == "s08-state-minimum"
         let layeredScope = mode == "s08-layered"
         let mergeMinimum = mode == "s08-merge-minimum"
+        let compositionComponent = mode == "s08-composition"
         let repetitions = minimumScope || stateScopeMinimum ? 1 : 2
         var qualifiedServices: [SavedAIService] = []
-        for service in minimumScope || stateScopeMinimum || mergeMinimum ? [.chatCompletions] : [AIServiceType.chatCompletions, .responses] {
+        let protocols: [AIServiceType]
+        if compositionComponent { protocols = [.responses] }
+        else if minimumScope || stateScopeMinimum || mergeMinimum { protocols = [.chatCompletions] }
+        else { protocols = [.chatCompletions, .responses] }
+        for service in protocols {
             let access = LiveOpenAIAccess(requestLimit: 3)
             let environment = ReportFlowTestEnvironment()
             environment.aiAccess = access
@@ -73,6 +94,10 @@ struct LiveOpenAISemanticTests {
             #expect(qualified)
             guard qualified else { return }
             qualifiedServices.append(flow.savedAIService)
+        }
+        if compositionComponent {
+            try await runS08CompositionComponents(service: #require(qualifiedServices.first), key: key, root: root)
+            return
         }
         if mergeMinimum {
             let source = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" })
@@ -226,6 +251,10 @@ struct LiveOpenAISemanticTests {
                 }
                 print("LIVE \(id) result=\(record.result) error=\(record.error ?? "none") HTTP=\(requests.count) layers=\(record.actualMergeLayers)")
                 #expect(flow.hasDraft && flow.generationError == nil)
+                if mode == "s08-blockers" || layeredScope {
+                    #expect(!hasCrossedS08BlockerCause(flow.body))
+                    #expect(!hasFullS08RiskInventory(flow.body))
+                }
                 if stateScopeMinimum || mode == "s08-blockers" || layeredScope {
                     expectS08SignOffSignals(flow.body, explicitlyLocal: scenario.id == "S08-state-local")
                     expectS08CompletionSignals(flow.body)
@@ -253,6 +282,67 @@ struct LiveOpenAISemanticTests {
 }
 
 private enum LiveOpenAIError: Error { case missingEnvironment, unexpectedConfiguration }
+
+// Fixed observed English clauses, not a general semantic validator or a product filter.
+private func hasCrossedS08BlockerCause(_ report: String) -> Bool {
+    report.lowercased().range(of: #"release[^.;\n]*(?:blocked by|blocked due to)[^.;\n]*schema|schema(?: mismatch)?\s+(?:blocks|prevents|stops)\s+(?:the\s+)?release"#,
+        options: .regularExpression) != nil
+}
+
+// This catches the observed full v1 inventory, not all excessive repetition.
+private func hasFullS08RiskInventory(_ report: String) -> Bool {
+    let risks = report.lowercased().components(separatedBy: "## issues & risks\n\n").last?
+        .components(separatedBy: "\n\n## tomorrow’s plan").first ?? ""
+    return (1...16).allSatisfy { family in
+        (1...4).allSatisfy { risks.contains(String(format: "synth36-08-b%02d-%d", family, $0)) }
+    }
+}
+
+@MainActor
+private func runS08CompositionComponents(service qualified: SavedAIService, key: String, root: URL) async throws {
+    let source = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" })
+    var service = qualified
+    service.configuration.totalBudget = try source.layeredBudget().totalBudget
+    let context = ReportGenerationContext(service: service,
+        snapshot: .init(day: source.day, sessions: source.sessions, redactionFailed: false), settings: source.settings, history: [])
+    guard case .batched(let plan) = try await ReportGenerationPlan.build(context, credential: key,
+        tokenizer: OfflineReportTokenizer(), redact: { $0 }) else { throw LiveOpenAIError.unexpectedConfiguration }
+    let access = LiveOpenAIAccess(requestLimit: 4)
+    print("LIVE COMPONENT generation HTTP=4; 19 facts versus two blockers, each twice; no automatic retries")
+    for progress in [true, false] {
+        var facts: [ReportFactPayload.Fact] = []
+        if progress {
+            facts.append(.init(references: [7], turns: ["1/1"], status: .confirmed, summary: try #require(source.turns.first?.finalAnswer)))
+            for (index, session) in source.sessions.dropFirst().enumerated() {
+                let names = try session.turns.map { turn in
+                    try #require(turn.finalAnswer).components(separatedBy: ";")[0]
+                        .replacingOccurrences(of: "Drafted the configuration rule for ", with: "")
+                }
+                facts.append(.init(references: [7], turns: (1...4).map { "\(index + 2)/\($0)" }, status: .unconfirmed,
+                    summary: "Drafted distinct configuration rules for " + names.joined(separator: ", ") + "; review is pending and none has been released."))
+            }
+        }
+        facts += [.init(references: [7], turns: ["9/4"], status: .unconfirmed,
+            summary: "The shared synthetic schema mismatch blocks integrating these rules; affected scope unspecified."),
+            .init(references: [7], turns: ["17/4"], status: .unconfirmed,
+            summary: "The synthetic sign-off is still missing; release remains blocked; affected scope unspecified.")]
+        let block = try ReportJSON.encode(ReportFactNode.Input(id: 7, facts: facts, noRelevantContent: false,
+            completeTurns: Array(Set(facts.flatMap(\.turns))).sorted()))
+        for repetition in 1...2 {
+            let payload = try await recordedComponentRequest(.init(intent: .composeReport, configuration: service.configuration,
+                credential: key, instruction: plan.prepared.batchFinalInstruction, input: plan.input(upstream: [7]),
+                schema: plan.finalSchema, streaming: service.validation.streaming == .supported, additionalInputs: [block]),
+                access: access, output: root.appendingPathComponent("composition-component.json"))
+            let report = try ReportPayload.render(payload, language: source.settings.outputLanguage)
+            try Data(report.utf8).write(to: root.appendingPathComponent("composition-\(progress ? "progress" : "blockers")-\(repetition).md"))
+            print("LIVE COMPONENT progress=\(progress) repetition=\(repetition) crossed=\(hasCrossedS08BlockerCause(report)) full-risk-inventory=\(hasFullS08RiskInventory(report))")
+            #expect(!hasCrossedS08BlockerCause(report) && !hasFullS08RiskInventory(report))
+            expectS08CompletionSignals(report)
+            expectS08SignOffSignals(report)
+            expectS08ScopeSignals(report, explicitlyLocal: false)
+        }
+    }
+}
 
 @MainActor
 private func recordedComponentRequest(_ request: AIRequest, access: LiveOpenAIAccess, output: URL) async throws -> String {

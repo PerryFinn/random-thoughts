@@ -4,6 +4,25 @@ import Testing
 
 @MainActor
 struct ReportGenerationTests {
+    @Test(arguments: ["-", "  -  ", "- \n- ", "+\n*", "1.\n2."])
+    func emptyListSectionsCannotReplaceTheExistingDraftOrSources(_ emptyList: String) async throws {
+        let environment = ReportFlowTestEnvironment(); try await installSyntheticAI(environment)
+        let flow = try await prepareSessionFlow(environment, sessions: [syntheticCandidate("empty-list-section")])
+        flow.send(.confirmSessionSelection); await flow.waitForSessionScan()
+        await environment.ai.enqueue(.success(syntheticReportPayload))
+        flow.send(.generateReport); await flow.waitForGeneration()
+        let original = flow.body, sourceTitles = flow.generationSources?.groups.first?.titles
+        var sections = Dictionary(uniqueKeysWithValues: ReportPayload.keys.map { ($0, "") })
+        sections["decisions"] = emptyList
+        await environment.ai.enqueue(.success(try ReportJSON.encode(sections)))
+        flow.send(.generateReport); await flow.waitForGeneration()
+        #expect(flow.generationError == .invalidResponse)
+        #expect(flow.hasDraft && flow.body == original)
+        #expect(flow.generationSources?.groups.first?.titles == sourceTitles)
+        #expect(flow.savedAIService.hasMatchingValidation)
+        #expect(await environment.ai.requests.count == 2)
+    }
+
     @Test func aChangedConfigurationCannotBecomeActiveBeforeItCancelsTheRunningGeneration() async throws {
         let environment = ReportFlowTestEnvironment(); try await installSyntheticAI(environment)
         let flow = try await prepareSessionFlow(environment, sessions: [syntheticCandidate("config-commit-28")])

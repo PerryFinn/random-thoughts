@@ -4,7 +4,7 @@ import Testing
 
 struct ReportPayloadTests {
     @Test(arguments: [
-        "- complete\n\n---\n\n- more", "```markdown\n## literal\n```", "before\n\n    ## code literal\n\nafter",
+        "- complete\n\n---\n\n- more", "\\-", "`-`", "- pending review", "```markdown\n## literal\n```", "before\n\n    ## code literal\n\nafter",
         "```markdown\n#\n##\n```", "[r]: #\n---", "[r]:\n/path\n\n---", "[r]:\n<#>\n\n---"
     ])
     func validHorizontalRulesAndCodeDoNotBecomeForbiddenHeadings(_ body: String) throws {

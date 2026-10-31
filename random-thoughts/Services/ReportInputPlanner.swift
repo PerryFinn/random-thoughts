@@ -40,13 +40,15 @@ nonisolated struct ReportInputPlan: Sendable {
         """
         Write a team-readable daily work report in \(language == .chinese ? "Chinese" : "English").
         Return ONLY a JSON object with exactly six distinct STRING fields, in this order:
-        overview, completed, deliverables, decisions, risks, plans. Empty sections are empty strings.
+        overview, completed, deliverables, decisions, risks, plans. Empty sections are empty strings, never empty list markers or placeholder labels.
         No wrapper, markdown fences, extra fields or text. No level 1 or 2 / setext headings inside fields.
         Organize achievements and actions by work items: only merge sessions when goal, object and outcome relation are explicit.
         Professional, neutral, concise; no first-person / AI narrative. Overview has at most three bullets.
         Preserve each object's exact result in EVERY section. A completed output proves only that output complete, never its larger work item, system or project. Never downgrade an explicitly completed output to a draft because other work remains pending.
         Keep major achievements, deliverables, decisions/reasons, progress, blockers, risks and explicit next actions.
         Preserve every key blocker, its cause, stated affected scope and certainty even if mentioned only once.
+        Keep each cause paired ONLY with its stated blocked action/object in EVERY section; NEVER pool independent causes and outcomes into a shared causal claim.
+        Example only: "Gate A blocks integration. Gate B blocks release." MUST NOT become "A and B block integration and release".
         Where a blocker is reported is NOT its affected scope. Distinct work items can share a blocker without being merged.
         Do not narrow a shared or unspecified scope to the reporting item/session, or invent a wider affected set.
         Status-only blocker facts belong in risks, NEVER invent achievements, decisions or reasons from them. Keep explicitly evidenced decisions and their reasons.
