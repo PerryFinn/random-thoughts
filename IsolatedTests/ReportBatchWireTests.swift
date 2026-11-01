@@ -15,7 +15,8 @@ struct ReportBatchWireTests {
         var configuration = AIServiceConfiguration(service: service)
         configuration.endpoint = environment.transport.endpoint.absoluteString
         configuration.model = "synthetic-batch"; configuration.outputLimit = 3_000
-        let blocks = [#"{"id":1,"facts":["👩🏽‍💻é\\\""],"noRelevantContent":false}"#, #"{"id":2,"facts":[],"noRelevantContent":true}"#]
+        let blocks = [#"{"id":1,"groups":[{"status":"unconfirmed","facts":[{"turns":["1/1"],"summary":"👩🏽‍💻é\\\""}]}],"noRelevantContent":false,"completeTurns":["1/1"]}"#,
+                      #"{"id":2,"groups":[],"noRelevantContent":true,"completeTurns":[]}"#]
         let request = AIRequest(intent: .mergeFacts, configuration: configuration, credential: "synthetic",
             instruction: "Synthetic fact contract", input: "Synthetic metadata", schema: ReportFactPayload.schema,
             streaming: false, additionalInputs: blocks)

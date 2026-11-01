@@ -8,6 +8,25 @@
 
 [#36 语义验收入口](acceptance/issue-36/README.md) 复用既有直接语义夹具，提供[固定八场景](acceptance/issue-36/scenarios.md)、判定规则、调用规模／授权清单及[三协议 48 任务空白模板](acceptance/issue-36/record-template.md)。用户补充提供 Key 并授权两个 OpenAI 协议的真实请求后，使用 `./script/test-live-openai.sh scenarios` 显式执行；默认隔离入口仍断网且跳过 live 测试，不自动加载 `.env.local`。Messages、原生应用、真实 Codex 和用户数据库操作仍不在本轮授权内，未实测项保持未完成。
 
+## #36 S08 连续元数据分组的生产离线验证（2026-11-01）
+
+基于 `9c6d298`，参考试验分支 `codex-prototype-s08-compact-facts` 的 `bfd8348`，将原字段名连续分组接入生产响应、节点、schema 和三阶段指令。先更新[长输入契约](long-input-generation.md)，响应解析与节点测试分别观察到 `invalidResponse`／缺少 `groups` 的预期失败；生产流程测试再观察到 schema、格式说明和双满额成文预留的 6 处预期失败后转绿。没有修改预算公式、覆盖／引用／整轮状态谓词或严格缩减检查，不接收旧格式。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| `ReportCompactFactTests`／节点契约 | 引用数组顺序、三种状态、连续与交错分组、摘要 UTF-8 字节保持；24 组旧格式、空组、缺失／额外／重复字段及错误类型均拒绝。 |
+| `ReportCompactFactFlowTests` | 使用生产规划器和完整 `ReportBatchExecutor.execute()`，由受控服务的右侧稠密响应促使实际经过三层；固定左子树 `8 → 4 → 2 → 1` 始终保留全部 34 条事实、33 轮及原文，节点总量 `1,592 → 1,480 → 1,424 → 1,396`。根原始响应 1,283／节点 1,396，均不超过 1,500。 |
+| 原预算与原拒绝规则 | C＝9,550、O＝3,000、I＝5,240、预留 1,024 不变。计入完整说明、Responses 原生 schema 及两个各 1,500 的独立节点后，归并／成文最坏预留为 5,109／5,212，成文仅余 28。实际每次请求及逐节点、逐层严格缩减均检查；原始超限、脱敏后节点超限、遗漏非空父节点、覆盖／引用／轮次／状态错误及无缩减均终止。 |
+| 全量隔离 Debug（离线包装） | 60 套件／293 项登记，3 项显式 live／压力入口跳过，290 项执行通过；无 Swift 编译警告。 |
+| 全量隔离 Release（离线包装） | 同样 60 套件／293 项登记、3 项跳过、290 项执行通过；保留 `-O`／整模块优化，无 Swift 编译警告。 |
+| Debug arm64 生产纯构建（外层禁网） | `BUILD SUCCEEDED`；保留既有 CoreDevice／CoreSimulator 环境诊断与 AppIntents 元数据跳过提示，无 Swift 编译警告。 |
+
+本次只在 `.build/s08-production/` 生成临时离线测试包装：Rust 设 `CARGO_NET_OFFLINE=true`，SwiftPM 构建添加 `--disable-automatic-resolution --disable-sandbox` 并由外层 `(deny network*)` 禁网；测试执行仍使用仓库原有隔离沙盒及单端口假服务。Xcode 纯构建同样外层禁网，使用本机已缓存依赖、`-disableAutomaticPackageResolution -skipPackageUpdates -onlyUsePackageVersionsFromResolvedFile`，并在本次命令中设 `-IDEPackageSupportDisableManifestSandbox=YES` 和 `OTHER_SWIFT_FLAGS='$(inherited) -disable-sandbox'`，避免 macOS 拒绝内层 manifest／宏 sandbox；没有更改仓库构建脚本或工程配置。新 actor 测试替身的协议遵循按既有替身放在 extension 中，避免 Release 整模块优化下的隔离推导错误。
+
+canonical S08 的完整背景单元因新格式固定开销从 16 变为实测 13，当天 65 轮和全部字节、后续短历史不变；同步更新对应断言，未放宽辅助预算。这里只证明确定性响应通过实际生产流程，不证明模型可靠生成分组格式、修复父引用遗漏或通过 S08 全文语义验收；历史真实失败保持原判，#36／父 #20 继续未完成。原型未合入生产分支，未调用真实 AI、读取 Key、启动应用、读取真实 Codex 或操作用户数据库；不推送。
+
+code-review 固定基点为 `9c6d298`，两名独立代理评审本轮 15 个文件的冻结差异：Standards 为 0 项硬性违反、0 项未解决可行动气味；Spec 为 0 项未解决缺失、实现错误或范围扩张。删除了旧的逐事实响应／节点线格式编码及旧夹具形状，没有保留兼容分支；未删除源文件或用户数据。`project.pbxproj` 原有排序改动保留、哈希与起始一致，排除在本次提交之外。
+
 ## #36 S08 归并拒绝与预算诊断（2026-11-01）
 
 基于 `f5c4555`，在既有有限合成真实调用授权内继续定位 R17。临时安全计数确认：J01 一次 `invalidResponse` 为事实引用漏掉非空父节点；J02 一次第三层 `budget` 为原始载荷 1,550＞可见预算 1,500。不能据此反推没有探针的 R17 全部失败。J04 缩到相关祖先子树，J05 再缩到各 17 条事实、共 33 轮的两个父节点；规范化后仍为 1,548，排除仅空白排版导致超限，尚未证明每条事实不可删除。

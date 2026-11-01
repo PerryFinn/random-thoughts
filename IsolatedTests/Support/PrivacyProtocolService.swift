@@ -33,11 +33,15 @@ actor PrivacyProtocolService {
                 text = text.replacingOccurrences(of: "合成进展", with: "RESULT_PRIVATE_34 \(request.credential)")
             case .extractFacts, .mergeFacts:
                 var payload = try JSONSerialization.jsonObject(with: Data(text.utf8)) as! [String: Any]
-                var entries = payload["facts"] as! [[String: Any]]
-                for index in entries.indices {
-                    entries[index]["summary"] = "INTERMEDIATE_PRIVATE_34 \(request.credential) " + (entries[index]["summary"] as! String)
+                var groups = payload["groups"] as! [[String: Any]]
+                for groupIndex in groups.indices {
+                    var entries = groups[groupIndex]["facts"] as! [[String: Any]]
+                    for index in entries.indices {
+                        entries[index]["summary"] = "INTERMEDIATE_PRIVATE_34 \(request.credential) " + (entries[index]["summary"] as! String)
+                    }
+                    groups[groupIndex]["facts"] = entries
                 }
-                payload["facts"] = entries
+                payload["groups"] = groups
                 text = String(decoding: try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]), as: UTF8.self)
             case .probe: break
             }

@@ -5,15 +5,26 @@ import Testing
 @MainActor
 struct ReportFactContractTests {
     @Test func nodeEvidenceDropsValidatedOldReferencesButPreservesFactsAndWholeTurns() throws {
-        let fact = ReportFactPayload.Fact(references: [23], turns: ["4/2"], status: .unconfirmed, summary: "A draft remains pending.")
-        let block = try ReportJSON.encode(ReportFactNode.Input(id: 7, facts: [fact], noRelevantContent: false, completeTurns: ["4/2"]))
+        let facts: [ReportFactPayload.Fact] = [
+            .init(references: [23], turns: ["4/2"], status: .unconfirmed, summary: "A draft remains pending."),
+            .init(references: [99], turns: ["4/3"], status: .unconfirmed, summary: "范围未指定。e\u{301} 👩🏽‍💻"),
+            .init(references: [23], turns: ["4/2"], status: .confirmed, summary: "The document is complete."),
+            .init(references: [23], turns: ["4/2"], status: .unconfirmed, summary: "Release remains pending.")]
+        let block = try ReportJSON.encode(ReportFactNode.Input(id: 7, facts: facts, noRelevantContent: false, completeTurns: ["4/2"]))
         let object = try #require(try JSONSerialization.jsonObject(with: Data(block.utf8)) as? [String: Any])
-        let evidence = try #require((object["facts"] as? [[String: Any]])?.first)
-        #expect(Set(evidence.keys) == ["turns", "status", "summary"])
+        #expect(Set(object.keys) == ["id", "groups", "noRelevantContent", "completeTurns"])
+        let groups = try #require(object["groups"] as? [[String: Any]])
+        #expect(groups.compactMap { $0["status"] as? String } == ["unconfirmed", "confirmed", "unconfirmed"])
+        #expect(groups.allSatisfy { Set($0.keys) == ["status", "facts"] })
+        #expect((groups.first?["facts"] as? [Any])?.count == 2)
+        let evidence = try groups.flatMap { try #require($0["facts"] as? [[String: Any]]) }
+        #expect(evidence.allSatisfy { Set($0.keys) == ["turns", "summary"] })
         #expect(object["id"] as? Int == 7 && object["completeTurns"] as? [String] == ["4/2"])
-        #expect(evidence["turns"] as? [String] == fact.turns)
-        #expect(evidence["status"] as? String == fact.status.rawValue && evidence["summary"] as? String == fact.summary)
-        #expect(!block.contains("23"))
+        for (entry, fact) in zip(evidence, facts) {
+            #expect(entry["turns"] as? [String] == fact.turns)
+            #expect((entry["summary"] as? String)?.utf8.elementsEqual(fact.summary.utf8) == true)
+        }
+        #expect(!block.contains("references"))
     }
 
     @Test(arguments: AIServiceType.allCases)
@@ -57,8 +68,10 @@ struct ReportFactContractTests {
                 for request in merges {
                     for block in request.additionalInputs {
                         let node = try #require(try JSONSerialization.jsonObject(with: Data(block.utf8)) as? [String: Any])
-                        let evidence = try #require(node["facts"] as? [[String: Any]])
-                        #expect(evidence.allSatisfy { Set($0.keys) == ["turns", "status", "summary"] })
+                        let groups = try #require(node["groups"] as? [[String: Any]])
+                        #expect(groups.allSatisfy { Set($0.keys) == ["status", "facts"] })
+                        let evidence = try groups.flatMap { try #require($0["facts"] as? [[String: Any]]) }
+                        #expect(evidence.allSatisfy { Set($0.keys) == ["turns", "summary"] })
                     }
                 }
             }

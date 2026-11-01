@@ -8,16 +8,64 @@ nonisolated struct ReportFactPayload: Codable, Sendable {
         let status: Status
         var summary: String
     }
+    struct Evidence: Codable, Sendable {
+        let turns: [String]
+        let summary: String
+    }
+    private struct Group: Codable {
+        let references: [Int]
+        let status: Fact.Status
+        var facts: [Evidence]
+    }
     let covered: [Int]
     let noRelevantContent: Bool
     var facts: [Fact]
 
+    init(covered: [Int], noRelevantContent: Bool, facts: [Fact]) {
+        self.covered = covered
+        self.noRelevantContent = noRelevantContent
+        self.facts = facts
+    }
+
+    private enum CodingKeys: String, CodingKey { case covered, noRelevantContent, groups }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        covered = try container.decode([Int].self, forKey: .covered)
+        noRelevantContent = try container.decode(Bool.self, forKey: .noRelevantContent)
+        let groups = try container.decode([Group].self, forKey: .groups)
+        guard groups.allSatisfy({ !$0.facts.isEmpty }) else { throw AIRequestError.invalidResponse }
+        facts = groups.flatMap { group in
+            group.facts.map { Fact(references: group.references, turns: $0.turns, status: group.status, summary: $0.summary) }
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var groups: [Group] = []
+        for fact in facts {
+            let evidence = Evidence(turns: fact.turns, summary: fact.summary)
+            if let last = groups.last, last.references == fact.references, last.status == fact.status {
+                groups[groups.count - 1].facts.append(evidence)
+            } else {
+                groups.append(Group(references: fact.references, status: fact.status, facts: [evidence]))
+            }
+        }
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(covered, forKey: .covered)
+        try container.encode(noRelevantContent, forKey: .noRelevantContent)
+        try container.encode(groups, forKey: .groups)
+    }
+
     static func parse(_ text: String) throws -> Self {
         let data = Data(text.utf8)
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              Set(object.keys) == ["covered", "noRelevantContent", "facts"],
-              let entries = object["facts"] as? [[String: Any]],
-              entries.allSatisfy({ Set($0.keys) == ["references", "turns", "status", "summary"] }) else {
+              Set(object.keys) == ["covered", "noRelevantContent", "groups"],
+              let groups = object["groups"] as? [[String: Any]],
+              groups.allSatisfy({ group in
+                  guard Set(group.keys) == ["references", "status", "facts"],
+                        let entries = group["facts"] as? [[String: Any]] else { return false }
+                  return entries.allSatisfy { Set($0.keys) == ["turns", "summary"] }
+              }) else {
             throw AIRequestError.invalidResponse
         }
         try rejectDuplicateKeys(text)
@@ -77,15 +125,18 @@ nonisolated struct ReportFactPayload: Codable, Sendable {
 
     private static func makeSchema(allowsConfirmed: Bool) -> String {
         let statuses = allowsConfirmed ? #""uncertain","unconfirmed","confirmed""# : #""uncertain","unconfirmed""#
-        return #"{"type":"object","properties":{"covered":{"type":"array","items":{"type":"integer"}},"noRelevantContent":{"type":"boolean"},"facts":{"type":"array","items":{"type":"object","properties":{"references":{"type":"array","items":{"type":"integer"}},"turns":{"type":"array","items":{"type":"string","pattern":"^[1-9][0-9]*/[1-9][0-9]*$"}},"status":{"type":"string","enum":[\#(statuses)]},"summary":{"type":"string"}},"required":["references","turns","status","summary"],"additionalProperties":false}}},"required":["covered","noRelevantContent","facts"],"additionalProperties":false}"#
+        return #"{"type":"object","properties":{"covered":{"type":"array","items":{"type":"integer"}},"noRelevantContent":{"type":"boolean"},"groups":{"type":"array","items":{"type":"object","properties":{"references":{"type":"array","items":{"type":"integer"}},"status":{"type":"string","enum":[\#(statuses)]},"facts":{"type":"array","items":{"type":"object","properties":{"turns":{"type":"array","items":{"type":"string","pattern":"^[1-9][0-9]*/[1-9][0-9]*$"}},"summary":{"type":"string"}},"required":["summary","turns"],"additionalProperties":false}}},"required":["facts","references","status"],"additionalProperties":false}}},"required":["covered","groups","noRelevantContent"],"additionalProperties":false}"#
     }
 
     static func instructions(language: ReportOutputLanguage) -> String {
         """
         Extract or merge evidence-backed work-item facts in \(language == .chinese ? "Chinese" : "English").
-        Return ONLY JSON: {"covered":[integer upstream IDs],"noRelevantContent":boolean,"facts":[
-        {"references":[integer upstream IDs],"turns":["session/order"],"status":"uncertain|unconfirmed|confirmed","summary":"evidence-backed facts"}]}.
-        Exactly these fields. This is NOT a six-section report. No fences or extra text.
+        Return ONLY JSON {"covered":[upstream IDs],"noRelevantContent":boolean,"groups":[
+        {"references":[upstream IDs],"status":"uncertain|unconfirmed|confirmed","facts":[{"turns":["session/order"],"summary":"evidence-backed facts"}]}]}.
+        Exactly these fields. No fences or extra text. This is NOT a six-section report.
+        Flatten groups in order; every fact inherits its group's exact references and status.
+        Group only contiguous facts with identical references/status; no empty groups. All rules below apply to expanded facts.
+
         covered must include EVERY supplied fragment ID (extraction) or upstream node ID (merge), exactly once.
         Each fact references only valid direct upstream IDs and their session/order associations.
         For merge, each output reference is the enclosing node.id; NEVER use turn numbers or earlier-stage IDs.
@@ -113,8 +164,8 @@ nonisolated struct ReportFactPayload: Codable, Sendable {
         A partial turn MUST NOT use status "confirmed", even when its local text reports a successful check.
         Preserve cross-fragment status changes; incomplete/contradictory evidence stays uncertain. Final replies alone are not proof.
         Plans require user commitments, requests, accepted actions or explicit TODOs; retain actual dates.
-        Output must fit visibleBudget, including JSON. The normalized node block (id/facts/noRelevantContent/completeTurns)
-        must also fit visibleBudget; its facts contain turns/status/summary only. This budget is separate from output/thinking O.
+        Output must fit visibleBudget, including JSON. The normalized node block (id/groups/noRelevantContent/completeTurns)
+        must also fit visibleBudget; its groups contain status/facts with turns/summary only. This budget is separate from output/thinking O.
         Compress without losing major achievements or blockers. No unsupported semantic repair or six-section formatting.
         """
     }

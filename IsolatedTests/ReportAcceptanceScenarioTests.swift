@@ -117,7 +117,10 @@ struct ReportAcceptanceScenarioTests {
             background += (input["background"] as? [Any])?.count ?? 0
             #expect(!request.input.contains("large background"))
         }
-        #expect(scenario.sessions.count == 17 && turns == 65 && background == 16)
+        #expect(scenario.sessions.count == 17 && turns == 65)
+        // The grouped format/schema consumes fixed input space; the unchanged
+        // auxiliary policy still selects whole units without displacing today.
+        #expect(background == 13)
         #expect(userBytes == scenario.userBytes && answerBytes == scenario.answerBytes)
         #expect(flow.generationSources?.historyDays.map(\.calendarDate) == ["2026-10-18"])
         #expect(environment.generationEvents.last?.result == .degraded)

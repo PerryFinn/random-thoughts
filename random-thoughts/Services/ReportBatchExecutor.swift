@@ -2,19 +2,29 @@ import Foundation
 
 nonisolated struct ReportFactNode: Sendable {
     struct Input: Encodable {
-        struct Evidence: Encodable {
-            let turns: [String]
+        static let instructions = "Input nodes replace facts with ordered groups [{status,facts:[{turns,summary}]}]. Flatten groups in order; each fact inherits its group's status. Other node fields are unchanged."
+
+        struct Group: Encodable {
             let status: ReportFactPayload.Fact.Status
-            let summary: String
+            var facts: [ReportFactPayload.Evidence]
         }
         let id: Int
-        let facts: [Evidence]
+        let groups: [Group]
         let noRelevantContent: Bool
         let completeTurns: [String]
 
         init(id: Int, facts: [ReportFactPayload.Fact], noRelevantContent: Bool, completeTurns: [String]) {
             self.id = id
-            self.facts = facts.map { Evidence(turns: $0.turns, status: $0.status, summary: $0.summary) }
+            var groups: [Group] = []
+            for fact in facts {
+                let evidence = ReportFactPayload.Evidence(turns: fact.turns, summary: fact.summary)
+                if groups.last?.status == fact.status {
+                    groups[groups.count - 1].facts.append(evidence)
+                } else {
+                    groups.append(Group(status: fact.status, facts: [evidence]))
+                }
+            }
+            self.groups = groups
             self.noRelevantContent = noRelevantContent
             self.completeTurns = completeTurns
         }

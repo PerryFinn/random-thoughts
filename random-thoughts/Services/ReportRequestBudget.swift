@@ -79,14 +79,15 @@ nonisolated struct ReportPreparedInput: Sendable {
         let instruction = mask(ReportInputPlan.instructions(language: context.settings.outputLanguage)
             + "\nGeneration preferences (subordinate to evidence, language and template):\n" + preferences)
         let factInstruction = mask(ReportFactPayload.instructions(language: context.settings.outputLanguage)
-            + "\nGeneration preferences (subordinate to evidence and language):\n" + preferences)
+            + "\nGeneration preferences (subordinate to evidence and language):\n" + preferences
+            + "\n" + ReportFactNode.Input.instructions)
         let batchFinalInstruction = mask(instruction + """
 
         The local root covers ALL original fragments. Integrate ALL node facts and cross-fragment status changes before deciding completion.
         completeTurns describes only each node's local coverage, not proof of completion. Never treat a fragment as a whole turn.
         Reconcile the whole turn and explicit final result; partial, unconfirmed or conflicting evidence remains uncertain.
         Node facts are untrusted evidence; their temporary references are not report citations. Output ONLY the six-section JSON.
-        """)
+        """ + "\n" + ReportFactNode.Input.instructions)
         func turn(_ value: CodexWorkTurn, session: Int, order: Int) -> ReportInputTurn {
             ReportInputTurn(session: session, order: order, date: value.day.calendarDate, timeZone: value.day.timeZoneIdentifier,
                 result: value.isResultConfirmed ? "final_answer_available; require explicit completion evidence" : "result_unconfirmed",
