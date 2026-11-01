@@ -66,10 +66,11 @@ struct LiveOpenAISemanticTests {
         let layeredScope = mode == "s08-layered"
         let mergeMinimum = mode == "s08-merge-minimum"
         let compositionComponent = mode == "s08-composition"
+        let mergeBudget = mode == "s08-merge-budget"
         let repetitions = minimumScope || stateScopeMinimum ? 1 : 2
         var qualifiedServices: [SavedAIService] = []
         let protocols: [AIServiceType]
-        if compositionComponent { protocols = [.responses] }
+        if compositionComponent || mergeBudget { protocols = [.responses] }
         else if minimumScope || stateScopeMinimum || mergeMinimum { protocols = [.chatCompletions] }
         else { protocols = [.chatCompletions, .responses] }
         for service in protocols {
@@ -97,6 +98,10 @@ struct LiveOpenAISemanticTests {
         }
         if compositionComponent {
             try await runS08CompositionComponents(service: #require(qualifiedServices.first), key: key, root: root)
+            return
+        }
+        if mergeBudget {
+            try await runS08MergeBudgetPair(service: #require(qualifiedServices.first), key: key, root: root)
             return
         }
         if mergeMinimum {
@@ -282,6 +287,67 @@ struct LiveOpenAISemanticTests {
 }
 
 private enum LiveOpenAIError: Error { case missingEnvironment, unexpectedConfiguration }
+
+@MainActor
+private func runS08MergeBudgetPair(service qualified: SavedAIService, key: String, root: URL) async throws {
+    let source = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" }).layeredBudget()
+    var service = qualified; service.configuration.totalBudget = source.totalBudget
+    let context = ReportGenerationContext(service: service,
+        snapshot: .init(day: source.day, sessions: source.sessions, redactionFailed: false), settings: source.settings, history: source.history)
+    guard case .batched(let plan) = try await ReportGenerationPlan.build(context, credential: key,
+        tokenizer: OfflineReportTokenizer(), redact: { $0 }) else { throw LiveOpenAIError.unexpectedConfiguration }
+    let tokenizer = OfflineReportTokenizer(), access = LiveOpenAIAccess(requestLimit: 2)
+    var blocks: [String] = []
+    var parentTurns: [Int: Set<String>] = [:], parentTokens = 0
+    for (group, range) in [(25, 0...4), (26, 5...8)] {
+        var facts: [ReportFactPayload.Fact] = []
+        for session in range {
+            for (order, turn) in source.sessions[session].turns.enumerated() {
+                let answer = try #require(turn.finalAnswer)
+                let association = "\(session + 1)/\(order + 1)"
+                let blocker = " The shared synthetic schema mismatch blocks integrating these rules."
+                facts.append(.init(references: [group], turns: [association], status: session == 0 ? .confirmed : .unconfirmed,
+                    summary: answer.replacingOccurrences(of: blocker, with: "")))
+                if answer.contains(blocker) {
+                    facts.append(.init(references: [group], turns: [association], status: .unconfirmed,
+                        summary: "The shared synthetic schema mismatch blocks integrating these rules; affected scope unspecified."))
+                }
+            }
+        }
+        try #require(facts.count == 17)
+        parentTurns[group] = Set(facts.flatMap(\.turns))
+        let block = try ReportJSON.encode(ReportFactNode.Input(id: group, facts: facts, noRelevantContent: false,
+            completeTurns: Array(Set(facts.flatMap(\.turns))).sorted()))
+        let size = try await tokenizer.count(block)
+        try #require(size <= plan.visibleLimit)
+        parentTokens += size
+        print("LIVE PAIR parent=\(group) normalized=\(size) facts=\(facts.count)")
+        blocks.append(block)
+    }
+    for repetition in 1...2 {
+        let payload = try await recordedComponentRequest(.init(intent: .mergeFacts, configuration: service.configuration,
+            credential: key, instruction: plan.factInstruction, input: plan.input(upstream: [25, 26]), schema: plan.factSchema,
+            streaming: service.validation.streaming == .supported, additionalInputs: blocks), access: access,
+            output: root.appendingPathComponent("budget-pair.json"))
+        let facts = try ReportFactPayload.parse(payload)
+        let normalized = try ReportJSON.encode(ReportFactNode.Input(id: 29, facts: facts.facts, noRelevantContent: facts.noRelevantContent,
+            completeTurns: Array(Set(facts.facts.flatMap(\.turns))).sorted()))
+        let raw = try await tokenizer.count(payload), count = try await tokenizer.count(normalized)
+        let retained = Set(facts.facts.flatMap(\.references)).isSuperset(of: [25, 26])
+        let covered = facts.covered.count == 2 && Set(facts.covered) == [25, 26] && !facts.noRelevantContent
+        let associations = facts.facts.allSatisfy { fact in
+            let references = Set(fact.references), turns = Set(fact.turns)
+            let valid = references.reduce(into: Set<String>()) { $0.formUnion(parentTurns[$1] ?? []) }
+            return !references.isEmpty && references.count == fact.references.count && references.isSubset(of: [25, 26])
+                && !turns.isEmpty && turns.count == fact.turns.count && turns.isSubset(of: valid)
+        }
+        let turnsPreserved = Set(facts.facts.flatMap(\.turns)) == parentTurns.values.reduce(into: Set<String>()) { $0.formUnion($1) }
+        print("LIVE PAIR repetition=\(repetition) raw=\(raw) normalized=\(count) retained=\(retained) facts=\(facts.facts.count) covered=\(covered) associations=\(associations) turnsPreserved=\(turnsPreserved)")
+        #expect(raw <= plan.visibleLimit && count <= plan.visibleLimit && count < parentTokens && retained)
+        #expect(covered && associations && turnsPreserved)
+    }
+}
+
 
 // Fixed observed English clauses, not a general semantic validator or a product filter.
 private func hasCrossedS08BlockerCause(_ report: String) -> Bool {
