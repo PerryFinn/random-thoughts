@@ -4,6 +4,33 @@ import Testing
 
 @MainActor
 struct ReportCompactFactFlowTests {
+    @Test(arguments: [true, false])
+    func sameStatusFactsFromDifferentFragmentsKeepTheirOwnReferences(_ wrongReference: Bool) async throws {
+        let scenario = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" }).layeredBudget()
+        let original = try await makePlan(scenario)
+        let plan = try S08ExtractionPair.makePlan(from: original)
+        let step = try #require(plan.extraction.first)
+        #expect(plan.extraction.count == 1 && step.fragments.map(\.id) == [22, 23])
+        var input = try #require(JSONSerialization.jsonObject(with: Data(step.input.utf8)) as? [String: Any])
+        let source = try #require(original.extraction.first { $0.id == 6 })
+        var full = try #require(JSONSerialization.jsonObject(with: Data(source.input.utf8)) as? [String: Any])
+        input.removeValue(forKey: "fragments"); full.removeValue(forKey: "fragments")
+        #expect(NSDictionary(dictionary: input).isEqual(to: full))
+        let access = ControlledAIService()
+        let payload = wrongReference
+            ? #"{"covered":[22,23],"noRelevantContent":false,"groups":[{"references":[22],"status":"unconfirmed","facts":[{"turns":["7/1"],"summary":"First draft pending."},{"turns":["7/2"],"summary":"Second draft pending."}]}]}"#
+            : #"{"covered":[22,23],"noRelevantContent":false,"groups":[{"references":[22],"status":"unconfirmed","facts":[{"turns":["7/1"],"summary":"First draft pending."}]},{"references":[23],"status":"unconfirmed","facts":[{"turns":["7/2"],"summary":"Second draft pending."}]}]}"#
+        await access.enqueue(.success(payload))
+        await access.enqueue(.success(syntheticReportPayload))
+        let executor = ReportBatchExecutor(plan: plan, credential: "", access: access, redact: { $0 }, progress: { _ in })
+        if wrongReference {
+            await #expect(throws: AIRequestError.invalidResponse) { try await executor.execute() }
+        } else {
+            let output = try await executor.execute()
+            #expect(output.payload == syntheticReportPayload)
+        }
+    }
+
     @Test func s08FactsSurviveThreeProductionMergeLayersWithinTheOriginalBudgets() async throws {
         let scenario = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" }).layeredBudget()
         let plan = try await makePlan(scenario)

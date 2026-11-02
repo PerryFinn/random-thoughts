@@ -4,6 +4,16 @@ import Testing
 
 @MainActor
 struct LiveOpenAISemanticTests {
+    @Test func extractionPairStopsBeforeSendingAMergeOrCompositionRequest() async throws {
+        for intent in [AIRequestIntent.mergeFacts, .composeReport] {
+            let access = LiveOpenAIAccess(requestLimit: 0, extractionOnly: true)
+            let request = AIRequest(intent: intent, configuration: liveOpenAIConfiguration(.responses),
+                credential: "SYNTHETIC_NO_NETWORK_KEY", instruction: "synthetic", input: "{}", schema: nil, streaming: false)
+            await #expect(throws: LiveOpenAIError.extractionComplete) { try await access.execute(request) }
+            #expect(await access.records.isEmpty)
+        }
+    }
+
     @Test func causalitySignalsRejectTheObservedReleaseCauseWithoutRejectingSeparateBlockers() {
         #expect(hasCrossedS08BlockerCause("Release remains blocked by missing synthetic sign-off and unresolved synthetic schema mismatch."))
         #expect(hasCrossedS08BlockerCause("The schema mismatch blocks release."))
@@ -67,10 +77,11 @@ struct LiveOpenAISemanticTests {
         let mergeMinimum = mode == "s08-merge-minimum"
         let compositionComponent = mode == "s08-composition"
         let mergeBudget = mode == "s08-merge-budget"
+        let extractionPair = mode == "s08-extraction-pair"
         let repetitions = minimumScope || stateScopeMinimum ? 1 : 2
         var qualifiedServices: [SavedAIService] = []
         let protocols: [AIServiceType]
-        if compositionComponent || mergeBudget { protocols = [.responses] }
+        if compositionComponent || mergeBudget || extractionPair { protocols = [.responses] }
         else if minimumScope || stateScopeMinimum || mergeMinimum { protocols = [.chatCompletions] }
         else { protocols = [.chatCompletions, .responses] }
         for service in protocols {
@@ -95,6 +106,10 @@ struct LiveOpenAISemanticTests {
             #expect(qualified)
             guard qualified else { return }
             qualifiedServices.append(flow.savedAIService)
+        }
+        if extractionPair {
+            try await runS08ExtractionPair(service: #require(qualifiedServices.first), key: key, root: root)
+            return
         }
         if compositionComponent {
             try await runS08CompositionComponents(service: #require(qualifiedServices.first), key: key, root: root)
@@ -286,7 +301,32 @@ struct LiveOpenAISemanticTests {
     }
 }
 
-private enum LiveOpenAIError: Error { case missingEnvironment, unexpectedConfiguration }
+private enum LiveOpenAIError: Error, Equatable { case missingEnvironment, unexpectedConfiguration, extractionComplete }
+
+@MainActor
+private func runS08ExtractionPair(service qualified: SavedAIService, key: String, root: URL) async throws {
+    let source = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" }).layeredBudget()
+    var service = qualified; service.configuration.totalBudget = source.totalBudget
+    let context = ReportGenerationContext(service: service,
+        snapshot: .init(day: source.day, sessions: source.sessions, redactionFailed: false), settings: source.settings, history: source.history)
+    guard case .batched(let original) = try await ReportGenerationPlan.build(context, credential: key,
+        tokenizer: OfflineReportTokenizer(), redact: { $0 }) else { throw LiveOpenAIError.unexpectedConfiguration }
+    let plan = try S08ExtractionPair.makePlan(from: original)
+    let access = LiveOpenAIAccess(requestLimit: 2, extractionOnly: true)
+    print("LIVE EXTRACTION PAIR generation HTTP<=2; fragments 22/23, turns 7/1 and 7/2; no retries, merges or composition")
+    for repetition in 1...2 {
+        var complete = false, error: AIRequestError?
+        do {
+            _ = try await ReportBatchExecutor(plan: plan, credential: key, access: access, redact: { $0 }, progress: { _ in }).execute()
+        } catch LiveOpenAIError.extractionComplete { complete = true }
+        catch let caught { error = AIRequestError.reason(for: caught) }
+        let records = await access.records
+        try JSONEncoder().encode(records).write(to: root.appendingPathComponent("extraction-pair.json"))
+        print("LIVE EXTRACTION PAIR repetition=\(repetition) HTTP=\(records.count) accepted=\(complete) error=\(error?.rawValue ?? "none")")
+        #expect(complete && error == nil)
+        if let error, error.invalidatesConfiguration || error == .quota || error == .serviceLimit { return }
+    }
+}
 
 @MainActor
 private func runS08MergeBudgetPair(service qualified: SavedAIService, key: String, root: URL) async throws {
@@ -564,11 +604,17 @@ private actor LiveOpenAIAccess: AIServiceAccess {
     }
     private let client = AIServiceClient(transport: .production())
     private let requestLimit: Int
+    private let extractionOnly: Bool
     private var dispatched = 0
     private(set) var records: [Record] = []
-    init(requestLimit: Int) { self.requestLimit = requestLimit }
+    init(requestLimit: Int, extractionOnly: Bool = false) {
+        self.requestLimit = requestLimit; self.extractionOnly = extractionOnly
+    }
 
     func execute(_ request: AIRequest) async throws -> String {
+        if extractionOnly {
+            guard case .extractFacts = request.intent else { throw LiveOpenAIError.extractionComplete }
+        }
         let configuration = request.configuration
         guard [.chatCompletions, .responses].contains(configuration.service),
               configuration.endpoint == configuration.service.endpointExample,
