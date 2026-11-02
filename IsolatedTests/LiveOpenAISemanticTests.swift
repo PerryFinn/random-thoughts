@@ -313,16 +313,25 @@ private func runS08ExtractionPair(service qualified: SavedAIService, key: String
         tokenizer: OfflineReportTokenizer(), redact: { $0 }) else { throw LiveOpenAIError.unexpectedConfiguration }
     let plan = try S08ExtractionPair.makePlan(from: original)
     let access = LiveOpenAIAccess(requestLimit: 2, extractionOnly: true)
+    var attempts: [S08ExtractionDiagnostics.Attempt] = []
     print("LIVE EXTRACTION PAIR generation HTTP<=2; fragments 22/23, turns 7/1 and 7/2; no retries, merges or composition")
     for repetition in 1...2 {
         var complete = false, error: AIRequestError?
+        let diagnostics = S08ExtractionDiagnostics()
         do {
-            _ = try await ReportBatchExecutor(plan: plan, credential: key, access: access, redact: { $0 }, progress: { _ in }).execute()
+            _ = try await ReportBatchExecutor(plan: plan, credential: key,
+                access: S08ExtractionDiagnosticAccess(upstream: access, diagnostics: diagnostics),
+                redact: { $0 }, progress: { _ in }, onRejection: { diagnostics.reject($0) }).execute()
         } catch LiveOpenAIError.extractionComplete { complete = true }
         catch let caught { error = AIRequestError.reason(for: caught) }
         let records = await access.records
         try JSONEncoder().encode(records).write(to: root.appendingPathComponent("extraction-pair.json"))
+        attempts.append(.init(repetition: repetition, accepted: complete, error: error?.rawValue, observation: diagnostics.observation))
+        try JSONEncoder().encode(attempts).write(to: root.appendingPathComponent("extraction-pair-diagnostics.json"))
         print("LIVE EXTRACTION PAIR repetition=\(repetition) HTTP=\(records.count) accepted=\(complete) error=\(error?.rawValue ?? "none")")
+        let returned = attempts.filter { $0.accepted || !$0.observation.rejections.isEmpty }.count
+        let rejected = attempts.filter { $0.observation.rejections.contains { $0.predicate == .turnAssociation } }.count
+        print("LIVE EXTRACTION PAIR association-rejections=\(rejected)/\(returned) returned; attempted=\(attempts.count)/2")
         #expect(complete && error == nil)
         if let error, error.invalidatesConfiguration || error == .quota || error == .serviceLimit { return }
     }

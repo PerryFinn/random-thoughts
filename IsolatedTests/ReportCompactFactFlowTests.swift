@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import random_thoughts
 
@@ -22,12 +23,91 @@ struct ReportCompactFactFlowTests {
             : #"{"covered":[22,23],"noRelevantContent":false,"groups":[{"references":[22],"status":"unconfirmed","facts":[{"turns":["7/1"],"summary":"First draft pending."}]},{"references":[23],"status":"unconfirmed","facts":[{"turns":["7/2"],"summary":"Second draft pending."}]}]}"#
         await access.enqueue(.success(payload))
         await access.enqueue(.success(syntheticReportPayload))
-        let executor = ReportBatchExecutor(plan: plan, credential: "", access: access, redact: { $0 }, progress: { _ in })
+        let rejections = Mutex<[ReportBatchExecutor.Rejection]>([])
+        let executor = ReportBatchExecutor(plan: plan, credential: "", access: access, redact: { $0 }, progress: { _ in },
+            onRejection: { rejection in rejections.withLock { $0.append(rejection) } })
         if wrongReference {
             await #expect(throws: AIRequestError.invalidResponse) { try await executor.execute() }
         } else {
             let output = try await executor.execute()
             #expect(output.payload == syntheticReportPayload)
+        }
+        #expect(rejections.withLock { $0 } == (wrongReference
+            ? [.init(node: 6, predicate: .turnAssociation, fact: 1)] : []))
+    }
+
+    @Test(arguments: [false, true])
+    func extractionDiagnosticsKeepOriginalGroupsAndAcceptLegalSharedReferences(_ shared: Bool) async throws {
+        let scenario = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" }).layeredBudget()
+        let plan = try S08ExtractionPair.makePlan(from: await makePlan(scenario))
+        let access = ControlledAIService(), diagnostics = S08ExtractionDiagnostics()
+        // Adjacent identical groups must remain separate in the observation.
+        let payload = shared
+            ? #"{"covered":[22,23],"noRelevantContent":false,"groups":[{"references":[22,23],"status":"unconfirmed","facts":[{"turns":["7/1"],"summary":"SYNTHETIC_PRIVATE_SUMMARY"},{"turns":["7/2"],"summary":"SYNTHETIC_PRIVATE_SUMMARY"}]}]}"#
+            : #"{"covered":[22,23],"noRelevantContent":false,"groups":[{"references":[22,23],"status":"unconfirmed","facts":[{"turns":["7/1"],"summary":"SYNTHETIC_PRIVATE_SUMMARY"}]},{"references":[22,23],"status":"unconfirmed","facts":[{"turns":["7/2"],"summary":"SYNTHETIC_PRIVATE_SUMMARY"}]}]}"#
+        await access.enqueue(.success(payload))
+        await access.enqueue(.success(syntheticReportPayload))
+        let output = try await ReportBatchExecutor(plan: plan, credential: "SYNTHETIC_PRIVATE_KEY",
+            access: S08ExtractionDiagnosticAccess(upstream: access, diagnostics: diagnostics),
+            redact: { $0 }, progress: { _ in }, onRejection: { diagnostics.reject($0) }).execute()
+        #expect(output.payload == syntheticReportPayload)
+        let observation = diagnostics.observation
+        #expect(observation.covered == [22, 23] && observation.rejections.isEmpty)
+        let expected: [S08ExtractionDiagnostics.Group] = shared
+            ? [.init(references: [22, 23], status: 1, turns: [[[7, 1]], [[7, 2]]])]
+            : [.init(references: [22, 23], status: 1, turns: [[[7, 1]]]),
+               .init(references: [22, 23], status: 1, turns: [[[7, 2]]])]
+        #expect(observation.groups == expected)
+        let encoded = String(decoding: try JSONEncoder().encode(observation), as: UTF8.self)
+        #expect(!encoded.contains("SYNTHETIC_PRIVATE") && !encoded.contains("summary"))
+    }
+
+    @Test(arguments: [ReportBatchExecutor.Rejection.Predicate.payloadParsing, .coveredCount, .coveredIDs,
+        .relevanceFlag, .emptyReferences, .duplicateReferences, .referenceBounds, .emptyTurns,
+        .duplicateTurns, .emptySummary, .turnAssociation, .rawVisibleBudget])
+    func extractionDiagnosticsReportActualRejectionsWithoutChangingTheVerdict(_ predicate: ReportBatchExecutor.Rejection.Predicate) async throws {
+        let scenario = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" }).layeredBudget()
+        let plan = try S08ExtractionPair.makePlan(from: await makePlan(scenario))
+        var evidence: [String: Any] = ["turns": ["7/1"], "summary": "SYNTHETIC_PRIVATE_SUMMARY"]
+        var group: [String: Any] = ["references": [22], "status": "unconfirmed"]
+        var root: [String: Any] = ["covered": [22, 23], "noRelevantContent": false]
+        switch predicate {
+        case .payloadParsing: root["SYNTHETIC_PRIVATE_FIELD"] = "SYNTHETIC_PRIVATE_VALUE"
+        case .coveredCount: root["covered"] = [22]
+        case .coveredIDs: root["covered"] = [22, 22]
+        case .relevanceFlag: root["noRelevantContent"] = true
+        case .emptyReferences: group["references"] = [Int]()
+        case .duplicateReferences: group["references"] = [22, 22]
+        case .referenceBounds: group["references"] = [99]
+        case .emptyTurns: evidence["turns"] = [String]()
+        case .duplicateTurns: evidence["turns"] = ["7/1", "7/1"]
+        case .emptySummary: evidence["summary"] = "  \n"
+        case .turnAssociation: evidence["turns"] = ["SYNTHETIC_PRIVATE_TURN"]
+        case .rawVisibleBudget: evidence["summary"] = String(repeating: " oversized", count: 1_600)
+        default: Issue.record("Unexpected fixture predicate"); return
+        }
+        group["facts"] = [evidence]; root["groups"] = [group]
+        let payload = String(decoding: try JSONSerialization.data(withJSONObject: root), as: UTF8.self)
+        for enabled in [false, true] {
+            let access = ControlledAIService(), diagnostics = S08ExtractionDiagnostics()
+            await access.enqueue(.success(payload))
+            let executor = ReportBatchExecutor(plan: plan, credential: "SYNTHETIC_PRIVATE_KEY",
+                access: S08ExtractionDiagnosticAccess(upstream: access, diagnostics: diagnostics),
+                redact: { $0 }, progress: { _ in }, onRejection: { if enabled { diagnostics.reject($0) } })
+            await #expect(throws: predicate == .rawVisibleBudget ? AIRequestError.budget : .invalidResponse) {
+                try await executor.execute()
+            }
+            let factPredicates: Set<ReportBatchExecutor.Rejection.Predicate> = [.emptyReferences, .duplicateReferences,
+                .referenceBounds, .emptyTurns, .duplicateTurns, .emptySummary, .turnAssociation]
+            let expected = ReportBatchExecutor.Rejection(node: 6, predicate: predicate,
+                fact: factPredicates.contains(predicate) ? 0 : nil)
+            #expect(diagnostics.observation.rejections == (enabled ? [expected] : []))
+            #expect(await access.requests.count == 1)
+            if predicate == .turnAssociation {
+                #expect(diagnostics.observation.groups?.first?.turns == [[[nil]]])
+            }
+            let encoded = String(decoding: try JSONEncoder().encode(diagnostics.observation), as: UTF8.self)
+            #expect(!encoded.contains("SYNTHETIC_PRIVATE") && !encoded.contains("summary"))
         }
     }
 

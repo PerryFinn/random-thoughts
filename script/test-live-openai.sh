@@ -8,7 +8,7 @@ case "$MODE" in probes|scenarios|invalid-response|s07-plans|s08-minimum|s08-bloc
 
 # Build and check the offline material before loading any credential.
 env -u RANDOM_THOUGHTS_LIVE_OPENAI -u OPENAI_API_KEY \
-  "$ROOT_DIR/script/test-isolated.sh" --filter 'ReportSemanticFixtureTests|ReportAcceptanceScenarioTests|LiveOpenAISemanticTests'
+  "$ROOT_DIR/script/test-isolated.sh" --filter 'ReportSemanticFixtureTests|ReportAcceptanceScenarioTests|ReportCompactFactFlowTests|LiveOpenAISemanticTests'
 SWIFT_BIN="$(xcrun --find swift)"
 TEST_RUNNER="$(dirname "$SWIFT_BIN")/../libexec/swift/pm/swiftpm-testing-helper"
 TEST_RUNNER="$(cd "$(dirname "$TEST_RUNNER")" && pwd -P)/swiftpm-testing-helper"
