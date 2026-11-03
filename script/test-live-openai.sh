@@ -4,11 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 MODE="${1:-scenarios}"
-case "$MODE" in probes|scenarios|invalid-response|s07-plans|s08-minimum|s08-blockers|s08-state-minimum|s08-layered|s08-merge-minimum|s08-composition|s08-merge-budget|s08-extraction-pair) ;; *) echo 'Usage: test-live-openai.sh [probes|scenarios|invalid-response|s07-plans|s08-minimum|s08-blockers|s08-state-minimum|s08-layered|s08-merge-minimum|s08-composition|s08-merge-budget|s08-extraction-pair]' >&2; exit 2 ;; esac
+case "$MODE" in probes|scenarios|invalid-response|s07-plans|s08-minimum|s08-blockers|s08-state-minimum|s08-layered|s08-merge-minimum|s08-composition|s08-merge-budget|s08-extraction-pair|s08-extraction-baseline) ;; *) echo 'Usage: test-live-openai.sh [probes|scenarios|invalid-response|s07-plans|s08-minimum|s08-blockers|s08-state-minimum|s08-layered|s08-merge-minimum|s08-composition|s08-merge-budget|s08-extraction-pair|s08-extraction-baseline]' >&2; exit 2 ;; esac
 
 # Build and check the offline material before loading any credential.
 env -u RANDOM_THOUGHTS_LIVE_OPENAI -u OPENAI_API_KEY \
-  "$ROOT_DIR/script/test-isolated.sh" --filter 'ReportSemanticFixtureTests|ReportAcceptanceScenarioTests|ReportCompactFactFlowTests|LiveOpenAISemanticTests'
+  "$ROOT_DIR/script/test-isolated.sh" --filter 'ReportSemanticFixtureTests|ReportAcceptanceScenarioTests|ReportCompactFactFlowTests|S08ExtractionAcceptanceTests|LiveOpenAISemanticTests'
 SWIFT_BIN="$(xcrun --find swift)"
 TEST_RUNNER="$(dirname "$SWIFT_BIN")/../libexec/swift/pm/swiftpm-testing-helper"
 TEST_RUNNER="$(cd "$(dirname "$TEST_RUNNER")" && pwd -P)/swiftpm-testing-helper"

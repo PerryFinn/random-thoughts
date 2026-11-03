@@ -91,10 +91,11 @@ struct LiveOpenAISemanticTests {
         let compositionComponent = mode == "s08-composition"
         let mergeBudget = mode == "s08-merge-budget"
         let extractionPair = mode == "s08-extraction-pair"
+        let extractionBaseline = mode == "s08-extraction-baseline"
         let repetitions = minimumScope || stateScopeMinimum ? 1 : 2
         var qualifiedServices: [SavedAIService] = []
         let protocols: [AIServiceType]
-        if compositionComponent || mergeBudget || extractionPair { protocols = [.responses] }
+        if compositionComponent || mergeBudget || extractionPair || extractionBaseline { protocols = [.responses] }
         else if minimumScope || stateScopeMinimum || mergeMinimum { protocols = [.chatCompletions] }
         else { protocols = [.chatCompletions, .responses] }
         for service in protocols {
@@ -118,7 +119,18 @@ struct LiveOpenAISemanticTests {
             print("LIVE \(service.rawValue) probes=\(records.count) qualified=\(qualified) errors=\(records.compactMap(\.error))")
             #expect(qualified)
             guard qualified else { return }
+            if extractionBaseline {
+                let frozenCapabilities = records.count == 3 && records.allSatisfy { $0.error == nil }
+                    && flow.savedAIService.validation.streaming == .supported
+                    && flow.savedAIService.validation.structured == .supported
+                #expect(frozenCapabilities)
+                guard frozenCapabilities else { return }
+            }
             qualifiedServices.append(flow.savedAIService)
+        }
+        if extractionBaseline {
+            try await runS08ExtractionBaseline(service: #require(qualifiedServices.first), key: key, root: root)
+            return
         }
         if extractionPair {
             try await runS08ExtractionPair(service: #require(qualifiedServices.first), key: key, root: root)
@@ -317,13 +329,38 @@ struct LiveOpenAISemanticTests {
 private enum LiveOpenAIError: Error, Equatable { case missingEnvironment, unexpectedConfiguration, extractionComplete }
 
 @MainActor
-private func runS08ExtractionPair(service qualified: SavedAIService, key: String, root: URL) async throws {
+private func makeS08LayeredPlan(service qualified: SavedAIService, key: String) async throws -> ReportBatchPlan {
     let source = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" }).layeredBudget()
     var service = qualified; service.configuration.totalBudget = source.totalBudget
     let context = ReportGenerationContext(service: service,
-        snapshot: .init(day: source.day, sessions: source.sessions, redactionFailed: false), settings: source.settings, history: source.history)
-    guard case .batched(let original) = try await ReportGenerationPlan.build(context, credential: key,
+        snapshot: .init(day: source.day, sessions: source.sessions, redactionFailed: false),
+        settings: source.settings, history: source.history)
+    guard case .batched(let plan) = try await ReportGenerationPlan.build(context, credential: key,
         tokenizer: OfflineReportTokenizer(), redact: { $0 }) else { throw LiveOpenAIError.unexpectedConfiguration }
+    return plan
+}
+
+@MainActor
+private func runS08ExtractionBaseline(service qualified: SavedAIService, key: String, root: URL) async throws {
+    let plan = try await makeS08LayeredPlan(service: qualified, key: key)
+    let access = LiveOpenAIAccess(requestLimit: 32, extractionOnly: true)
+    print("LIVE EXTRACTION BASELINE generation HTTP<=32; original 16 nodes x 2 independent rounds; stop on failure; no retries, merges or composition")
+    let result = await S08ExtractionAcceptance.run(plan: plan, credential: key, access: access)
+    let records = await access.records
+    try JSONEncoder().encode(records).write(to: root.appendingPathComponent("extraction-baseline.json"))
+    try JSONEncoder().encode(result).write(to: root.appendingPathComponent("extraction-baseline-diagnostics.json"))
+    for round in result.rounds {
+        let returned = round.nodes.filter(\.returned).count
+        let rejected = round.nodes.filter { $0.observation.rejections.contains { $0.predicate == .turnAssociation } }.count
+        print("LIVE EXTRACTION BASELINE repetition=\(round.repetition) status=\(round.status.rawValue) dispatched=\(round.nodes.filter(\.dispatched).count)/16 returned=\(returned) accepted=\(round.nodes.filter { $0.accepted == true }.count) retained=\(round.nodes.filter { $0.retained == true }.count) association-rejections=\(rejected)/\(returned)")
+    }
+    print("LIVE EXTRACTION BASELINE HTTP=\(records.count) admitted=\(result.admitted); extraction gate only")
+    #expect(result.admitted)
+}
+
+@MainActor
+private func runS08ExtractionPair(service qualified: SavedAIService, key: String, root: URL) async throws {
+    let original = try await makeS08LayeredPlan(service: qualified, key: key)
     let plan = try S08ExtractionPair.makePlan(from: original)
     let access = LiveOpenAIAccess(requestLimit: 2, extractionOnly: true)
     var attempts: [S08ExtractionDiagnostics.Attempt] = []
@@ -352,19 +389,16 @@ private func runS08ExtractionPair(service qualified: SavedAIService, key: String
 
 @MainActor
 private func runS08MergeBudgetPair(service qualified: SavedAIService, key: String, root: URL) async throws {
-    let source = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" }).layeredBudget()
-    var service = qualified; service.configuration.totalBudget = source.totalBudget
-    let context = ReportGenerationContext(service: service,
-        snapshot: .init(day: source.day, sessions: source.sessions, redactionFailed: false), settings: source.settings, history: source.history)
-    guard case .batched(let plan) = try await ReportGenerationPlan.build(context, credential: key,
-        tokenizer: OfflineReportTokenizer(), redact: { $0 }) else { throw LiveOpenAIError.unexpectedConfiguration }
+    let plan = try await makeS08LayeredPlan(service: qualified, key: key)
+    let service = plan.prepared.context.service
+    let sessions = plan.prepared.context.snapshot.sessions
     let tokenizer = OfflineReportTokenizer(), access = LiveOpenAIAccess(requestLimit: 2)
     var blocks: [String] = []
     var parentTurns: [Int: Set<String>] = [:], parentTokens = 0
     for (group, range) in [(25, 0...4), (26, 5...8)] {
         var facts: [ReportFactPayload.Fact] = []
         for session in range {
-            for (order, turn) in source.sessions[session].turns.enumerated() {
+            for (order, turn) in sessions[session].turns.enumerated() {
                 let answer = try #require(turn.finalAnswer)
                 let association = "\(session + 1)/\(order + 1)"
                 let blocker = " The shared synthetic schema mismatch blocks integrating these rules."
