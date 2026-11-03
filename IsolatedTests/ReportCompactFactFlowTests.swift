@@ -5,26 +5,26 @@ import Testing
 
 @MainActor
 struct ReportCompactFactFlowTests {
-    @Test(arguments: [true, false])
-    func sameStatusFactsFromDifferentFragmentsKeepTheirOwnReferences(_ wrongReference: Bool) async throws {
+    @Test(arguments: [true, false], [true, false])
+    func sameStatusFactsFromDifferentFragmentsKeepTheirOwnReferences(_ wrongReference: Bool, _ reduced: Bool) async throws {
         let scenario = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" }).layeredBudget()
         let original = try await makePlan(scenario)
-        let plan = try S08ExtractionPair.makePlan(from: original)
-        let step = try #require(plan.extraction.first)
-        #expect(plan.extraction.count == 1 && step.fragments.map(\.id) == [22, 23])
-        var input = try #require(JSONSerialization.jsonObject(with: Data(step.input.utf8)) as? [String: Any])
-        let source = try #require(original.extraction.first { $0.id == 6 })
-        var full = try #require(JSONSerialization.jsonObject(with: Data(source.input.utf8)) as? [String: Any])
-        input.removeValue(forKey: "fragments"); full.removeValue(forKey: "fragments")
-        #expect(NSDictionary(dictionary: input).isEqual(to: full))
+        let plan = reduced ? try S08ExtractionPair.makePlan(from: original) : original
+        let step = try #require(plan.extraction.first { $0.id == 6 })
         let access = ControlledAIService()
         let payload = wrongReference
             ? #"{"covered":[22,23],"noRelevantContent":false,"groups":[{"references":[22],"status":"unconfirmed","facts":[{"turns":["7/1"],"summary":"First draft pending."},{"turns":["7/2"],"summary":"Second draft pending."}]}]}"#
             : #"{"covered":[22,23],"noRelevantContent":false,"groups":[{"references":[22],"status":"unconfirmed","facts":[{"turns":["7/1"],"summary":"First draft pending."}]},{"references":[23],"status":"unconfirmed","facts":[{"turns":["7/2"],"summary":"Second draft pending."}]}]}"#
-        await access.enqueue(.success(payload))
-        await access.enqueue(.success(syntheticReportPayload))
+        // Cover the original node without changing the observed facts or mismatch.
+        var response = try #require(JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any])
+        response["covered"] = step.fragments.map(\.id)
+        let text = String(decoding: try JSONSerialization.data(withJSONObject: response,
+            options: [.sortedKeys, .withoutEscapingSlashes]), as: UTF8.self)
+        await access.enqueue(.success(text))
         let rejections = Mutex<[ReportBatchExecutor.Rejection]>([])
-        let executor = ReportBatchExecutor(plan: plan, credential: "", access: access, redact: { $0 }, progress: { _ in },
+        let executor = ReportBatchExecutor(plan: plan, credential: "",
+            access: S08NodeSixAccess(input: step.input, target: access, other: S08CompactAIService(plan: plan)),
+            redact: { $0 }, progress: { _ in },
             onRejection: { rejection in rejections.withLock { $0.append(rejection) } })
         if wrongReference {
             await #expect(throws: AIRequestError.invalidResponse) { try await executor.execute() }
@@ -34,6 +34,63 @@ struct ReportCompactFactFlowTests {
         }
         #expect(rejections.withLock { $0 } == (wrongReference
             ? [.init(node: 6, predicate: .turnAssociation, fact: 1)] : []))
+        #expect(await access.requests.count == 1)
+    }
+
+    @Test func extractionPairPreservesTheOriginalNodeRequestExceptForRemovedFragments() async throws {
+        let scenario = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" }).layeredBudget()
+        let original = try await makePlan(scenario)
+        let pair = try S08ExtractionPair.makePlan(from: original)
+        guard let source = original.extraction.first(where: { $0.id == 6 }) else { throw AIRequestError.invalidResponse }
+        #expect(original.extraction.count == 16 && pair.extraction.count == 1)
+        #expect(source.fragments.map(\.id) == [22, 23, 24, 25])
+        #expect(source.fragments.map(\.association) == ["7/1", "7/2", "7/3", "7/4"])
+        #expect(source.fragments.map(\.parts) == [1, 1, 1, 1])
+        #expect(original.extraction.flatMap(\.fragments).filter { ["7/1", "7/2"].contains($0.association) }.map(\.id) == [22, 23])
+        let retainedMetadataMatches = try ReportJSON.encode(pair.extraction[0].fragments)
+            == ReportJSON.encode(Array(source.fragments.prefix(2)))
+        #expect(retainedMetadataMatches)
+        var requests: [AIRequest] = []
+        for plan in [original, pair] {
+            let access = S08CompactAIService(plan: plan)
+            _ = try await ReportBatchExecutor(plan: plan, credential: "SYNTHETIC_FIDELITY_KEY",
+                access: access, redact: { $0 }, progress: { _ in }).execute()
+            let exchanges = await access.exchanges
+            guard let step = plan.extraction.first(where: { $0.id == 6 }),
+                  let request = exchanges.first(where: { $0.request.input == step.input })?.request else {
+                throw AIRequestError.invalidResponse
+            }
+            if case .extractFacts = request.intent {} else { Issue.record("Expected extraction") }
+            requests.append(request)
+        }
+        let full = requests[0], reduced = requests[1]
+        // Report only booleans on failure; request bodies remain in memory.
+        let sameControls = full.configuration == reduced.configuration && full.credential == reduced.credential
+            && full.streaming == reduced.streaming && full.additionalInputs == reduced.additionalInputs
+        let sameInstructionAndSchema = full.instruction == reduced.instruction && full.schema == reduced.schema
+            && full.schema == ReportFactPayload.schema
+        #expect(sameControls && sameInstructionAndSchema)
+        #expect(full.additionalInputs.isEmpty)
+        guard var input = try JSONSerialization.jsonObject(with: Data(full.input.utf8)) as? [String: Any],
+              let fragments = input["fragments"] as? [[String: Any]] else { throw AIRequestError.invalidResponse }
+        #expect(fragments.compactMap { $0["id"] as? Int } == [22, 23, 24, 25])
+        input["fragments"] = Array(fragments.prefix(2))
+        let expected = try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys, .withoutEscapingSlashes])
+        let onlyRemovedLastTwoFragments = expected.elementsEqual(reduced.input.utf8)
+        #expect(onlyRemovedLastTwoFragments)
+        #expect((input["background"] as? [Any])?.count == 1)
+        #expect((input["historicalReports"] as? [Any])?.isEmpty == true)
+        #expect((input["visibleBudget"] as? Int) == 1_500)
+        #expect(full.configuration.totalBudget == 9_550 && full.configuration.outputLimit == 3_000)
+        var tokens: [Int] = []
+        for request in requests {
+            let budget = try await ReportRequestBudget.make(instruction: request.instruction, schema: request.schema,
+                configuration: request.configuration, tokenizer: OfflineReportTokenizer())
+            #expect(budget.limit == 5_240)
+            tokens.append(try await budget.count(request.input, blocks: request.additionalInputs))
+        }
+        #expect(tokens == [3_794, 2_970])
+        print("S08 FIDELITY node=6 fragments=4/2 input=\(tokens)/5240; controls/schema/retained-fields unchanged")
     }
 
     @Test(arguments: [false, true])
@@ -227,5 +284,17 @@ struct ReportCompactFactFlowTests {
             throw AIRequestError.budget
         }
         return plan
+    }
+}
+
+// Route only node 6 to a controlled response while the original executor still
+// schedules its complete plan. All other requests use the existing substitute.
+private struct S08NodeSixAccess: AIServiceAccess {
+    let input: String
+    let target: ControlledAIService
+    let other: S08CompactAIService
+
+    func execute(_ request: AIRequest) async throws -> String {
+        try await (request.input == input ? target.execute(request) : other.execute(request))
     }
 }
