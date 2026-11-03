@@ -92,10 +92,11 @@ struct LiveOpenAISemanticTests {
         let mergeBudget = mode == "s08-merge-budget"
         let extractionPair = mode == "s08-extraction-pair"
         let extractionBaseline = mode == "s08-extraction-baseline"
+        let parentReferences = mode == "s08-parent-references"
         let repetitions = minimumScope || stateScopeMinimum ? 1 : 2
         var qualifiedServices: [SavedAIService] = []
         let protocols: [AIServiceType]
-        if compositionComponent || mergeBudget || extractionPair || extractionBaseline { protocols = [.responses] }
+        if compositionComponent || mergeBudget || extractionPair || extractionBaseline || parentReferences { protocols = [.responses] }
         else if minimumScope || stateScopeMinimum || mergeMinimum { protocols = [.chatCompletions] }
         else { protocols = [.chatCompletions, .responses] }
         for service in protocols {
@@ -119,7 +120,7 @@ struct LiveOpenAISemanticTests {
             print("LIVE \(service.rawValue) probes=\(records.count) qualified=\(qualified) errors=\(records.compactMap(\.error))")
             #expect(qualified)
             guard qualified else { return }
-            if extractionBaseline {
+            if extractionBaseline || parentReferences {
                 let frozenCapabilities = records.count == 3 && records.allSatisfy { $0.error == nil }
                     && flow.savedAIService.validation.streaming == .supported
                     && flow.savedAIService.validation.structured == .supported
@@ -127,6 +128,10 @@ struct LiveOpenAISemanticTests {
                 guard frozenCapabilities else { return }
             }
             qualifiedServices.append(flow.savedAIService)
+        }
+        if parentReferences {
+            try await runS08ParentReferences(service: #require(qualifiedServices.first), key: key, root: root)
+            return
         }
         if extractionBaseline {
             try await runS08ExtractionBaseline(service: #require(qualifiedServices.first), key: key, root: root)
@@ -356,6 +361,26 @@ private func runS08ExtractionBaseline(service qualified: SavedAIService, key: St
     }
     print("LIVE EXTRACTION BASELINE HTTP=\(records.count) admitted=\(result.admitted); extraction gate only")
     #expect(result.admitted)
+}
+
+@MainActor
+private func runS08ParentReferences(service qualified: SavedAIService, key: String, root: URL) async throws {
+    let plan = try await makeS08LayeredPlan(service: qualified, key: key)
+    let access = LiveOpenAIAccess(requestLimit: 8)
+    print("LIVE PARENT REFERENCES generation HTTP<=8; parents 15/16 then fixed 6 independent merges at node24; no retry, composition or full S08")
+    let result = await S08ParentReferenceDiagnostics.run(plan: plan, credential: key, access: access)
+    let records = await access.records
+    try JSONEncoder().encode(records).write(to: root.appendingPathComponent("parent-references.json"))
+    try JSONEncoder().encode(result).write(to: root.appendingPathComponent("parent-reference-diagnostics.json"))
+    let returned = result.attempts.filter { $0.result.returned }.count
+    let rejected = result.attempts.filter { $0.result.observation.rejections.contains { $0.predicate == .nonemptyParents } }.count
+    for attempt in result.attempts {
+        let record = attempt.result
+        print("LIVE PARENT REFERENCES repetition=\(attempt.repetition) dispatched=\(record.dispatched) returned=\(record.returned) accepted=\(record.accepted.map(String.init) ?? "undetermined") retained=\(record.retained.map(String.init) ?? "undetermined") predicates=\(record.observation.rejections.map { $0.predicate.rawValue }) error=\(record.error ?? "none")")
+    }
+    print("LIVE PARENT REFERENCES HTTP=\(records.count) ready=\(result.ready) complete=\(result.complete) nonemptyParents=\(rejected)/\(returned) returned; reproduction only")
+    #expect(result.ready && result.complete)
+    #expect(rejected == 0)
 }
 
 @MainActor

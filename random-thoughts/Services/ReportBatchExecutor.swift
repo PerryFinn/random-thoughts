@@ -154,7 +154,7 @@ nonisolated struct ReportBatchExecutor: Sendable {
         }
     }
 
-    private func execute(_ step: ReportBatchNodePlan, upstream: [Int: ReportFactNode]) async throws -> ReportFactNode {
+    func execute(_ step: ReportBatchNodePlan, upstream: [Int: ReportFactNode]) async throws -> ReportFactNode {
         try Task.checkCancellation()
         func rejected(_ predicate: Rejection.Predicate, fact: Int? = nil, error: AIRequestError = .invalidResponse) -> AIRequestError {
             onRejection(.init(node: step.id, predicate: predicate, fact: fact))

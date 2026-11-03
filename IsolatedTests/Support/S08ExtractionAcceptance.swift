@@ -66,7 +66,7 @@ nonisolated enum S08ExtractionAcceptance {
         return batch
     }
 
-    private static func isOriginalBaseline(_ plan: ReportBatchPlan) -> Bool {
+    static func isOriginalBaseline(_ plan: ReportBatchPlan) -> Bool {
         let service = plan.prepared.context.service, configuration = service.configuration
         guard configuration.service == .responses, configuration.model == "gpt-6-luna",
               configuration.totalBudget == 9_550, configuration.outputLimit == 3_000, configuration.concurrency == 3,

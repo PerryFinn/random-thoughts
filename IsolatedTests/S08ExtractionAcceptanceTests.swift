@@ -5,7 +5,7 @@ import Testing
 @MainActor
 struct S08ExtractionAcceptanceTests {
     @Test func twoOriginalExtractionRoundsStopBeforeMergingOrComposing() async throws {
-        let plan = try await makePlan()
+        let plan = try await makeOfflineS08LayeredPlan()
         let access = S08CompactAIService(plan: plan)
         let result = await S08ExtractionAcceptance.run(plan: plan, credential: "", access: access)
         #expect(result.admitted)
@@ -27,7 +27,7 @@ struct S08ExtractionAcceptanceTests {
     }
 
     @Test func aReducedPlanCannotQualifyAsTheOriginalSixteenNodeBaseline() async throws {
-        let original = try await makePlan()
+        let original = try await makeOfflineS08LayeredPlan()
         let plan = try S08ExtractionPair.makePlan(from: original)
         let access = S08CompactAIService(plan: plan)
         let result = await S08ExtractionAcceptance.run(plan: plan, credential: "", access: access)
@@ -37,7 +37,7 @@ struct S08ExtractionAcceptanceTests {
     }
 
     @Test func sharedReferencesAndMultipleFactsForOneTurnRemainLegal() async throws {
-        let plan = try await makePlan()
+        let plan = try await makeOfflineS08LayeredPlan()
         let response = #"{"covered":[22,23,24,25],"noRelevantContent":false,"groups":[{"references":[22,23,24,25],"status":"unconfirmed","facts":[{"turns":["7/1","7/2","7/3","7/4"],"summary":"SYNTHETIC_PRIVATE_SUMMARY"},{"turns":["7/1"],"summary":"SYNTHETIC_PRIVATE_SUMMARY"}]}]}"#
         let access = S08AcceptanceService(plan: plan, result: .success(response))
         let result = await S08ExtractionAcceptance.run(plan: plan, credential: "", access: access)
@@ -50,7 +50,7 @@ struct S08ExtractionAcceptanceTests {
     }
 
     @Test func aSecondRoundFailurePreservesTheFirstRoundWithoutCombiningCoverage() async throws {
-        let plan = try await makePlan()
+        let plan = try await makeOfflineS08LayeredPlan()
         let response = #"{"covered":[22,23,24,25],"noRelevantContent":true,"groups":[]}"#
         let access = S08AcceptanceService(plan: plan, result: .success(response), occurrence: 2)
         let result = await S08ExtractionAcceptance.run(plan: plan, credential: "", access: access)
@@ -65,7 +65,7 @@ struct S08ExtractionAcceptanceTests {
 
     @Test(arguments: [true, false])
     func productionAcceptedEmptyOrMissingTurnsFailDigitalRetentionAndStopTheBatch(_ empty: Bool) async throws {
-        let plan = try await makePlan()
+        let plan = try await makeOfflineS08LayeredPlan()
         let response = empty
             ? #"{"covered":[22,23,24,25],"noRelevantContent":true,"groups":[]}"#
             : #"{"covered":[22,23,24,25],"noRelevantContent":false,"groups":[{"references":[22],"status":"unconfirmed","facts":[{"turns":["7/1"],"summary":"SYNTHETIC_PRIVATE_SUMMARY"}]}]}"#
@@ -78,7 +78,7 @@ struct S08ExtractionAcceptanceTests {
 
     @Test(arguments: [false, true])
     func nodeEvidenceSeparatesActualProductionRejectionFromTransportFailure(_ transport: Bool) async throws {
-        let plan = try await makePlan()
+        let plan = try await makeOfflineS08LayeredPlan()
         let payload = #"{"covered":[22,23,24,25],"noRelevantContent":false,"groups":[{"references":[22],"status":"unconfirmed","facts":[{"turns":["7/1"],"summary":"SYNTHETIC_PRIVATE_SUMMARY"},{"turns":["7/2"],"summary":"SYNTHETIC_PRIVATE_SUMMARY"}]}]}"#
         let access = S08AcceptanceService(plan: plan, result: transport ? .failure(.network) : .success(payload))
         let result = await S08ExtractionAcceptance.run(plan: plan, credential: "SYNTHETIC_PRIVATE_KEY", access: access)
@@ -96,21 +96,6 @@ struct S08ExtractionAcceptanceTests {
         #expect(!text.contains("SYNTHETIC_PRIVATE") && !text.contains("summary") && !text.contains("https://"))
     }
 
-    private func makePlan() async throws -> ReportBatchPlan {
-        let source = try #require(ReportAcceptanceScenario.loadAll().first { $0.id == "S08" }).layeredBudget()
-        var configuration = AIServiceConfiguration(service: .responses)
-        configuration.endpoint = "https://s08-offline.invalid"; configuration.model = "gpt-6-luna"
-        configuration.totalBudget = 9_550; configuration.outputLimit = 3_000
-        configuration.defaults = .responses(.init(reasoningEffort: AIReasoningEffort.none))
-        var service = SavedAIService(configuration: configuration)
-        service.validation.structured = .supported; service.validation.streaming = .supported
-        let context = ReportGenerationContext(service: service,
-            snapshot: .init(day: source.day, sessions: source.sessions, redactionFailed: false),
-            settings: source.settings, history: source.history)
-        guard case .batched(let plan) = try await ReportGenerationPlan.build(context, credential: "",
-            tokenizer: OfflineReportTokenizer(), redact: { $0 }) else { throw AIRequestError.budget }
-        return plan
-    }
 }
 
 private actor S08AcceptanceService {
