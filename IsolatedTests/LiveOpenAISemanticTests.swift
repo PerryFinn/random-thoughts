@@ -4,6 +4,18 @@ import Testing
 
 @MainActor
 struct LiveOpenAISemanticTests {
+    @Test(arguments: [AIServiceType.chatCompletions, .responses])
+    func liveConfigurationUsesTheRequestedLunaModelWithTheExistingControls(_ service: AIServiceType) {
+        let configuration = liveOpenAIConfiguration(service)
+        #expect(configuration.model == "gpt-6-luna")
+        #expect(configuration.endpoint == service.endpointExample && configuration.outputLimit == 3_000)
+        switch configuration.defaults {
+        case .chatCompletions(let controls): #expect(controls.reasoningEffort == AIReasoningEffort.none)
+        case .responses(let controls): #expect(controls.reasoningEffort == AIReasoningEffort.none)
+        case .messages: Issue.record("Unexpected protocol")
+        }
+    }
+
     @Test func extractionPairStopsBeforeSendingAMergeOrCompositionRequest() async throws {
         for intent in [AIRequestIntent.mergeFacts, .composeReport] {
             let access = LiveOpenAIAccess(requestLimit: 0, extractionOnly: true)
@@ -71,6 +83,7 @@ struct LiveOpenAISemanticTests {
         }
         let root = URL(fileURLWithPath: output, isDirectory: true)
         let mode = variables["RANDOM_THOUGHTS_LIVE_MODE"]
+        print("LIVE TARGET model=\(LiveOpenAITarget.model) reasoning=none outputLimit=3000")
         let minimumScope = mode == "s08-minimum"
         let stateScopeMinimum = mode == "s08-state-minimum"
         let layeredScope = mode == "s08-layered"
@@ -583,10 +596,14 @@ private struct LiveTaskRecord: Codable {
     let requests: [LiveOpenAIAccess.Record]
 }
 
+private enum LiveOpenAITarget {
+    static let model = "gpt-6-luna"
+}
+
 func liveOpenAIConfiguration(_ service: AIServiceType) -> AIServiceConfiguration {
     var configuration = AIServiceConfiguration(service: service)
     configuration.endpoint = service.endpointExample
-    configuration.model = "gpt-5.4-mini-2026-03-17"
+    configuration.model = LiveOpenAITarget.model
     configuration.outputLimit = 3_000
     switch service {
     case .chatCompletions: configuration.defaults = .chatCompletions(.init(reasoningEffort: AIReasoningEffort.none))
@@ -627,7 +644,7 @@ private actor LiveOpenAIAccess: AIServiceAccess {
         let configuration = request.configuration
         guard [.chatCompletions, .responses].contains(configuration.service),
               configuration.endpoint == configuration.service.endpointExample,
-              configuration.model == "gpt-5.4-mini-2026-03-17", dispatched < requestLimit else { throw LiveOpenAIError.unexpectedConfiguration }
+              configuration.model == LiveOpenAITarget.model, dispatched < requestLimit else { throw LiveOpenAIError.unexpectedConfiguration }
         dispatched += 1
         let intent: String
         switch request.intent {
