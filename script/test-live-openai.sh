@@ -4,11 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 MODE="${1:-scenarios}"
-case "$MODE" in probes|scenarios|invalid-response|s07-plans|s08-minimum|s08-blockers|s08-state-minimum|s08-layered|s08-merge-minimum|s08-composition|s08-merge-budget|s08-extraction-pair|s08-extraction-baseline|s08-parent-references) ;; *) echo 'Usage: test-live-openai.sh [probes|scenarios|invalid-response|s07-plans|s08-minimum|s08-blockers|s08-state-minimum|s08-layered|s08-merge-minimum|s08-composition|s08-merge-budget|s08-extraction-pair|s08-extraction-baseline|s08-parent-references]' >&2; exit 2 ;; esac
+case "$MODE" in probes|scenarios|invalid-response|s07-plans|s08-minimum|s08-blockers|s08-state-minimum|s08-layered|s08-merge-minimum|s08-composition|s08-merge-budget|s08-extraction-pair|s08-extraction-baseline|s08-parent-references|s08-full) ;; *) echo 'Usage: test-live-openai.sh [probes|scenarios|invalid-response|s07-plans|s08-minimum|s08-blockers|s08-state-minimum|s08-layered|s08-merge-minimum|s08-composition|s08-merge-budget|s08-extraction-pair|s08-extraction-baseline|s08-parent-references|s08-full]' >&2; exit 2 ;; esac
 
 # Build and check the offline material before loading any credential.
 env -u RANDOM_THOUGHTS_LIVE_OPENAI -u OPENAI_API_KEY \
-  "$ROOT_DIR/script/test-isolated.sh" --filter 'ReportSemanticFixtureTests|ReportAcceptanceScenarioTests|ReportCompactFactFlowTests|S08ExtractionAcceptanceTests|S08ParentReferenceTests|LiveOpenAISemanticTests'
+  "$ROOT_DIR/script/test-isolated.sh" --filter 'ReportSemanticFixtureTests|ReportAcceptanceScenarioTests|ReportCompactFactFlowTests|S08ExtractionAcceptanceTests|S08ParentReferenceTests|S08FullAcceptanceTests|LiveOpenAISemanticTests'
 SWIFT_BIN="$(xcrun --find swift)"
 TEST_RUNNER="$(dirname "$SWIFT_BIN")/../libexec/swift/pm/swiftpm-testing-helper"
 TEST_RUNNER="$(cd "$(dirname "$TEST_RUNNER")" && pwd -P)/swiftpm-testing-helper"
@@ -21,7 +21,7 @@ TEST_ROOT="$(mktemp -d "$ROOT_DIR/.build/live-openai/run.XXXXXX")"
 mkdir -p "$TEST_ROOT/home" "$TEST_ROOT/tmp"
 
 # Read one literal assignment, never source shell code or place the Key in argv.
-/usr/bin/python3 - "$ROOT_DIR" "$TEST_ROOT" "$TEST_RUNNER" "$TEST_BINARY" "$MODE" <<'PY'
+/usr/bin/python3 - "$ROOT_DIR" "$TEST_ROOT" "$TEST_RUNNER" "$TEST_BINARY" "$MODE" 3<&0 <<'PY'
 import os, pathlib, stat, sys
 root, output, runner, binary, mode = sys.argv[1:]
 env_file = pathlib.Path(root) / '.env.local'
@@ -38,6 +38,8 @@ env.update(OPENAI_API_KEY=values[0], RANDOM_THOUGHTS_LIVE_OPENAI='1',
            RANDOM_THOUGHTS_LIVE_MODE=mode, RANDOM_THOUGHTS_LIVE_OUTPUT=output,
            CFFIXED_USER_HOME=output + '/home', TMPDIR=output + '/tmp/')
 print('Live OpenAI mode: ' + mode + '; private results: ' + output, flush=True)
+os.dup2(3, 0)
+os.close(3)
 os.execve('/usr/bin/sandbox-exec', [
     '/usr/bin/sandbox-exec', '-D', 'USER_HOME=' + os.path.expanduser('~'),
     '-D', 'WORKSPACE=' + root, '-D', 'ENV_FILE=' + str(env_file),

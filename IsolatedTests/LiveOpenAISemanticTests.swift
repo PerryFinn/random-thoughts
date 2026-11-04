@@ -93,10 +93,12 @@ struct LiveOpenAISemanticTests {
         let extractionPair = mode == "s08-extraction-pair"
         let extractionBaseline = mode == "s08-extraction-baseline"
         let parentReferences = mode == "s08-parent-references"
+        let fullS08 = mode == "s08-full"
+        if fullS08, variables["RANDOM_THOUGHTS_LIVE_MEMORY_REVIEW"] != "1" { throw LiveOpenAIError.missingEnvironment }
         let repetitions = minimumScope || stateScopeMinimum ? 1 : 2
         var qualifiedServices: [SavedAIService] = []
         let protocols: [AIServiceType]
-        if compositionComponent || mergeBudget || extractionPair || extractionBaseline || parentReferences { protocols = [.responses] }
+        if compositionComponent || mergeBudget || extractionPair || extractionBaseline || parentReferences || fullS08 { protocols = [.responses] }
         else if minimumScope || stateScopeMinimum || mergeMinimum { protocols = [.chatCompletions] }
         else { protocols = [.chatCompletions, .responses] }
         for service in protocols {
@@ -120,7 +122,7 @@ struct LiveOpenAISemanticTests {
             print("LIVE \(service.rawValue) probes=\(records.count) qualified=\(qualified) errors=\(records.compactMap(\.error))")
             #expect(qualified)
             guard qualified else { return }
-            if extractionBaseline || parentReferences {
+            if extractionBaseline || parentReferences || fullS08 {
                 let frozenCapabilities = records.count == 3 && records.allSatisfy { $0.error == nil }
                     && flow.savedAIService.validation.streaming == .supported
                     && flow.savedAIService.validation.structured == .supported
@@ -128,6 +130,22 @@ struct LiveOpenAISemanticTests {
                 guard frozenCapabilities else { return }
             }
             qualifiedServices.append(flow.savedAIService)
+        }
+        if fullS08 {
+            let plan = try await makeS08LayeredPlan(service: #require(qualifiedServices.first), key: key)
+            let access = LiveOpenAIAccess(requestLimit: 62)
+            print("LIVE FULL S08 HTTP<=65 including 3 probes; fixed two runs; first failure stops batch")
+            let result = await S08FullAcceptance.run(plan: plan, credential: key, access: access, review: reviewS08InMemory)
+            try JSONEncoder().encode(await access.records).write(to: root.appendingPathComponent("full-requests.json"))
+            try JSONEncoder().encode(result).write(to: root.appendingPathComponent("full-diagnostics.json"))
+            for round in result.rounds {
+                print("LIVE FULL S08 repetition=\(round.repetition) status=\(round.status.rawValue) layers=\(round.actualMergeLayers) composed=\(round.composed) issues=\(round.issues) error=\(round.error ?? "none")")
+                for node in round.nodes where !node.observation.rejections.isEmpty {
+                    print("LIVE FULL S08 node=\(node.id) layer=\(node.layer) predicates=\(node.observation.rejections.map { $0.predicate.rawValue })")
+                }
+            }
+            #expect(result.passed)
+            return
         }
         if parentReferences {
             try await runS08ParentReferences(service: #require(qualifiedServices.first), key: key, root: root)
@@ -332,6 +350,16 @@ struct LiveOpenAISemanticTests {
 }
 
 private enum LiveOpenAIError: Error, Equatable { case missingEnvironment, unexpectedConfiguration, extractionComplete }
+
+private func reviewS08InMemory(_ payload: String, nodes: [ReportFactNode]) -> [String] {
+    struct Review: Encodable { let report: String; let nodes: [String] }
+    guard let data = try? JSONEncoder().encode(Review(report: payload, nodes: nodes.sorted { $0.id < $1.id }.map(\.block))) else { return ["reviewUnavailable"] }
+    FileHandle.standardOutput.write(Data("S08_MEMORY_REVIEW ".utf8) + data + Data("\n".utf8))
+    let allowed: Set<String> = ["factLoss", "state", "causality", "scope", "plans", "structure", "language", "chapter", "unreviewed"]
+    guard let line = readLine(), let verdict = try? JSONDecoder().decode([String].self, from: Data(line.utf8)),
+          Set(verdict).isSubset(of: allowed) else { return ["reviewUnavailable"] }
+    return verdict
+}
 
 @MainActor
 private func makeS08LayeredPlan(service qualified: SavedAIService, key: String) async throws -> ReportBatchPlan {

@@ -71,6 +71,7 @@ nonisolated struct ReportBatchExecutor: Sendable {
     let redact: @Sendable (String) throws -> String
     let progress: @MainActor @Sendable (ReportBatchProgress) -> Void
     var onRejection: @Sendable (Rejection) -> Void = { _ in }
+    var onAcceptance: @Sendable (ReportFactNode) -> Void = { _ in }
 
     @concurrent func execute() async throws -> ReportBatchOutput {
         var completed = 0
@@ -228,7 +229,9 @@ nonisolated struct ReportBatchExecutor: Sendable {
         let tokens = try await plan.factBudget.tokenizer.count(block)
         guard tokens <= plan.visibleLimit else { throw rejected(.normalizedVisibleBudget, error: .budget) }
         if !parents.isEmpty, tokens >= parents.reduce(0, { $0 + $1.tokens }) { throw rejected(.strictReduction, error: .budget) }
-        return .init(id: step.id, coverage: coverage, block: block, tokens: tokens,
+        let node = ReportFactNode(id: step.id, coverage: coverage, block: block, tokens: tokens,
             noRelevantContent: facts.noRelevantContent, redactionFailed: failed)
+        onAcceptance(node)
+        return node
     }
 }
