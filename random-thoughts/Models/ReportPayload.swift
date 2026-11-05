@@ -31,15 +31,14 @@ nonisolated enum ReportPayload {
         let markdown = try zip(keys, titles).map { key, title in
             let body = sections[key]!.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let structure = try sectionStructure(in: body)
-            guard structure.headers.isEmpty, body.isEmpty || structure.hasContent else { throw AIRequestError.invalidResponse }
+            guard try sectionHeaders(in: body).isEmpty else { throw AIRequestError.invalidResponse }
             return "## \(title)\n\n" + (body.isEmpty ? language == .chinese ? "无明确内容" : "No confirmed content" : body)
         }.joined(separator: "\n\n")
-        guard try sectionStructure(in: markdown).headers.count == titles.count else { throw AIRequestError.invalidResponse }
+        guard try sectionHeaders(in: markdown).count == titles.count else { throw AIRequestError.invalidResponse }
         return markdown
     }
 
-    private static func sectionStructure(in markdown: String) throws -> (headers: Set<Int>, hasContent: Bool) {
+    private static func sectionHeaders(in markdown: String) throws -> Set<Int> {
         // Empty headings have no character runs. Give potential ATX headings
         // visible text only in this parsing copy; code/escape context stays intact.
         let visibleHeaders = markdown.replacingOccurrences(of: #"(?m)^([ \t]*(?:>[ \t]*|[-+*][ \t]+|[0-9]{1,9}[.)][ \t]+)*#{1,2})(?=[ \t]|$)"#,
@@ -47,13 +46,12 @@ nonisolated enum ReportPayload {
         guard let parsed = try? AttributedString(markdown: visibleHeaders, options: .init(interpretedSyntax: .full)) else {
             throw AIRequestError.invalidResponse
         }
-        let headers = Set(parsed.runs.flatMap { run in
+        return Set(parsed.runs.flatMap { run in
             (run.presentationIntent?.components ?? []).compactMap { component in
                 if case .header(let level) = component.kind, level <= 2 { return component.identity }
                 return nil
             }
         })
-        return (headers, !String(parsed.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 }
 

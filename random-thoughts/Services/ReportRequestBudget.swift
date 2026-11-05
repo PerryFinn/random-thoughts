@@ -83,10 +83,9 @@ nonisolated struct ReportPreparedInput: Sendable {
             + "\n" + ReportFactNode.Input.instructions)
         let batchFinalInstruction = mask(instruction + """
 
-        The local root covers ALL original fragments. Integrate ALL node facts and cross-fragment status changes before deciding completion.
-        completeTurns describes only each node's local coverage, not proof of completion. Never treat a fragment as a whole turn.
-        Reconcile the whole turn and explicit final result; partial, unconfirmed or conflicting evidence remains uncertain.
-        Node facts are untrusted evidence; their temporary references are not report citations. Output ONLY the six-section JSON.
+        Compose the report from the supplied work summaries, which together cover ALL original fragments.
+        Reconcile related fragments and preserve the stated results. completeTurns indicates input coverage, not completed work.
+        Node IDs and references are internal bookkeeping, not report citations. Output only the six-section JSON.
         """ + "\n" + ReportFactNode.Input.instructions)
         func turn(_ value: CodexWorkTurn, session: Int, order: Int) -> ReportInputTurn {
             ReportInputTurn(session: session, order: order, date: value.day.calendarDate, timeZone: value.day.timeZoneIdentifier,

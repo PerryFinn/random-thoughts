@@ -53,25 +53,11 @@ nonisolated struct ReportBatchOutput: Sendable {
 }
 
 nonisolated struct ReportBatchExecutor: Sendable {
-    struct Rejection: Codable, Equatable, Sendable {
-        enum Predicate: String, Codable, Sendable {
-            case inputBudget, rawVisibleBudget, payloadParsing, coveredCount, coveredIDs, relevanceFlag
-            case nonemptyParents, emptyReferences, duplicateReferences, referenceBounds
-            case emptyTurns, duplicateTurns, emptySummary, turnAssociation, confirmedWholeTurn
-            case normalizedVisibleBudget, strictReduction
-        }
-        let node: Int
-        let predicate: Predicate
-        let fact: Int?
-    }
-
     let plan: ReportBatchPlan
     let credential: String
     let access: any AIServiceAccess
     let redact: @Sendable (String) throws -> String
     let progress: @MainActor @Sendable (ReportBatchProgress) -> Void
-    var onRejection: @Sendable (Rejection) -> Void = { _ in }
-    var onAcceptance: @Sendable (ReportFactNode) -> Void = { _ in }
 
     @concurrent func execute() async throws -> ReportBatchOutput {
         var completed = 0
@@ -155,12 +141,8 @@ nonisolated struct ReportBatchExecutor: Sendable {
         }
     }
 
-    func execute(_ step: ReportBatchNodePlan, upstream: [Int: ReportFactNode]) async throws -> ReportFactNode {
+    private func execute(_ step: ReportBatchNodePlan, upstream: [Int: ReportFactNode]) async throws -> ReportFactNode {
         try Task.checkCancellation()
-        func rejected(_ predicate: Rejection.Predicate, fact: Int? = nil, error: AIRequestError = .invalidResponse) -> AIRequestError {
-            onRejection(.init(node: step.id, predicate: predicate, fact: fact))
-            return error
-        }
         let parents = try step.upstream.map { id in
             guard let node = upstream[id] else { throw AIRequestError.invalidResponse }
             return node
@@ -174,28 +156,22 @@ nonisolated struct ReportBatchExecutor: Sendable {
         let schema = plan.factSchema.map { wholeTurns.isEmpty ? ReportFactPayload.partialTurnSchema : $0 }
         // The full schema reserves at least as much space as the restricted status enum.
         guard try await plan.factBudget.count(step.input, blocks: blocks) <= plan.factBudget.limit else {
-            throw rejected(.inputBudget, error: .budget)
+            throw AIRequestError.budget
         }
         try Task.checkCancellation()
         let payload = try await access.execute(request(intent: step.fragments.isEmpty ? .mergeFacts : .extractFacts,
             instruction: plan.factInstruction, input: step.input, schema: schema, blocks: blocks))
         try Task.checkCancellation()
         guard try await plan.factBudget.tokenizer.count(payload) <= plan.visibleLimit else {
-            throw rejected(.rawVisibleBudget, error: .budget)
+            throw AIRequestError.budget
         }
-        var facts: ReportFactPayload
-        do { facts = try ReportFactPayload.parse(payload) }
-        catch {
-            onRejection(.init(node: step.id, predicate: .payloadParsing, fact: nil))
-            throw error
-        }
+        var facts = try ReportFactPayload.parse(payload)
         let expected = Set(step.fragments.isEmpty ? step.upstream : step.fragments.map(\.id))
-        guard facts.covered.count == expected.count else { throw rejected(.coveredCount) }
-        guard Set(facts.covered) == expected else { throw rejected(.coveredIDs) }
-        guard facts.noRelevantContent == facts.facts.isEmpty else { throw rejected(.relevanceFlag) }
+        guard facts.covered.count == expected.count, Set(facts.covered) == expected,
+              facts.noRelevantContent == facts.facts.isEmpty else { throw AIRequestError.invalidResponse }
         let referenced = Set(facts.facts.flatMap(\.references))
         guard parents.filter({ !$0.noRelevantContent }).allSatisfy({ referenced.contains($0.id) }) else {
-            throw rejected(.nonemptyParents)
+            throw AIRequestError.invalidResponse
         }
         let factTurns = Set(facts.facts.flatMap(\.turns))
         let completeTurns = factTurns.intersection(wholeTurns)
@@ -203,22 +179,19 @@ nonisolated struct ReportBatchExecutor: Sendable {
         for index in facts.facts.indices {
             let fact = facts.facts[index]
             let references = Set(fact.references)
-            guard !references.isEmpty else { throw rejected(.emptyReferences, fact: index) }
-            guard references.count == fact.references.count else { throw rejected(.duplicateReferences, fact: index) }
-            guard references.isSubset(of: expected) else { throw rejected(.referenceBounds, fact: index) }
-            guard !fact.turns.isEmpty else { throw rejected(.emptyTurns, fact: index) }
-            guard Set(fact.turns).count == fact.turns.count else { throw rejected(.duplicateTurns, fact: index) }
-            guard !fact.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw rejected(.emptySummary, fact: index) }
+            guard !references.isEmpty, references.count == fact.references.count, references.isSubset(of: expected),
+                  !fact.turns.isEmpty, Set(fact.turns).count == fact.turns.count,
+                  !fact.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AIRequestError.invalidResponse }
             let citedCoverage = step.fragments.isEmpty
                 ? parents.filter { references.contains($0.id) }.reduce(into: Set<Int>()) { $0.formUnion($1.coverage) }
                 : references
             let citedTurns = Set(fragments.filter { citedCoverage.contains($0.id) }.map(\.association))
             guard Set(fact.turns).isSubset(of: citedTurns) else {
-                throw rejected(.turnAssociation, fact: index)
+                throw AIRequestError.invalidResponse
             }
             if fact.status == .confirmed {
                 guard fact.turns.allSatisfy({ turn in fragments.filter { $0.association == turn }.allSatisfy { citedCoverage.contains($0.id) } }) else {
-                    throw rejected(.confirmedWholeTurn, fact: index)
+                    throw AIRequestError.invalidResponse
                 }
             }
             do { facts.facts[index].summary = try redact(fact.summary) } catch { failed = true }
@@ -227,11 +200,9 @@ nonisolated struct ReportBatchExecutor: Sendable {
         let block = try ReportJSON.encode(ReportFactNode.Input(id: step.id, facts: facts.facts,
             noRelevantContent: facts.noRelevantContent, completeTurns: completeTurns.sorted()))
         let tokens = try await plan.factBudget.tokenizer.count(block)
-        guard tokens <= plan.visibleLimit else { throw rejected(.normalizedVisibleBudget, error: .budget) }
-        if !parents.isEmpty, tokens >= parents.reduce(0, { $0 + $1.tokens }) { throw rejected(.strictReduction, error: .budget) }
-        let node = ReportFactNode(id: step.id, coverage: coverage, block: block, tokens: tokens,
+        guard tokens <= plan.visibleLimit else { throw AIRequestError.budget }
+        if !parents.isEmpty, tokens >= parents.reduce(0, { $0 + $1.tokens }) { throw AIRequestError.budget }
+        return ReportFactNode(id: step.id, coverage: coverage, block: block, tokens: tokens,
             noRelevantContent: facts.noRelevantContent, redactionFailed: failed)
-        onAcceptance(node)
-        return node
     }
 }

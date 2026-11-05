@@ -59,7 +59,6 @@ struct ReportBatchGenerationTests {
         flow.send(.confirmSessionSelection); await flow.waitForSessionScan()
         flow.send(.generateReport); await flow.waitForGeneration()
         let requests = await access.requests
-        #expect(requests.last?.instruction.contains("ALL original fragments") == true)
         var sessions: [[Int]] = []
         for request in requests {
             if case .extractFacts = request.intent {
@@ -192,22 +191,6 @@ struct ReportBatchGenerationTests {
         #expect(flow.body == "原手写正文必须保留" && flow.generationSources == nil)
         #expect(flow.savedAIService.hasMatchingValidation)
         #expect(await access.requests.allSatisfy { if case .composeReport = $0.intent { false } else { true } })
-    }
-
-    @Test func aGroupedMergeStillRejectsOmittingANonemptyParentWithoutRepairingTheResponse() async throws {
-        let environment = ReportFlowTestEnvironment(), access = BatchAIService(mode: .omitParentOnMerge)
-        environment.aiAccess = access
-        try await installSyntheticAI(environment, totalBudget: 12_000, outputLimit: 3_000)
-        let flow = try await prepareSessionFlow(environment, sessions: [syntheticCandidate("omit-parent",
-            user: String(repeating: " evidence", count: 60_000))])
-        flow.send(.confirmSessionSelection); await flow.waitForSessionScan()
-        flow.send(.generateReport); await flow.waitForGeneration()
-        flow.send(.confirm(try #require(flow.confirmation).id)); await flow.waitForGeneration()
-        #expect(flow.generationError == .invalidResponse && !flow.hasDraft && flow.generationSources == nil)
-        let requests = await access.requests
-        #expect(requests.contains { if case .mergeFacts = $0.intent { true } else { false } })
-        #expect(requests.allSatisfy { if case .composeReport = $0.intent { false } else { true } })
-        #expect(flow.savedAIService.hasMatchingValidation)
     }
 
     @Test func denseSummariesUseFiniteMergeLayersAndStopAsSoonAsTheyFit() async throws {

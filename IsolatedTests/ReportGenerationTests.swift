@@ -4,23 +4,22 @@ import Testing
 
 @MainActor
 struct ReportGenerationTests {
-    @Test(arguments: ["-", "  -  ", "- \n- ", "+\n*", "1.\n2."])
-    func emptyListSectionsCannotReplaceTheExistingDraftOrSources(_ emptyList: String) async throws {
+    @Test func minorListFormattingStillProducesAnEditableDraft() async throws {
         let environment = ReportFlowTestEnvironment(); try await installSyntheticAI(environment)
-        let flow = try await prepareSessionFlow(environment, sessions: [syntheticCandidate("empty-list-section")])
+        let candidate = syntheticCandidate("list-formatting")
+        let flow = try await prepareSessionFlow(environment, sessions: [candidate])
         flow.send(.confirmSessionSelection); await flow.waitForSessionScan()
-        await environment.ai.enqueue(.success(syntheticReportPayload))
-        flow.send(.generateReport); await flow.waitForGeneration()
-        let original = flow.body, sourceTitles = flow.generationSources?.groups.first?.titles
         var sections = Dictionary(uniqueKeysWithValues: ReportPayload.keys.map { ($0, "") })
-        sections["decisions"] = emptyList
+        sections["completed"] = "完成日报生成。"
+        sections["decisions"] = "-"
         await environment.ai.enqueue(.success(try ReportJSON.encode(sections)))
         flow.send(.generateReport); await flow.waitForGeneration()
-        #expect(flow.generationError == .invalidResponse)
-        #expect(flow.hasDraft && flow.body == original)
-        #expect(flow.generationSources?.groups.first?.titles == sourceTitles)
-        #expect(flow.savedAIService.hasMatchingValidation)
-        #expect(await environment.ai.requests.count == 2)
+        #expect(flow.generationError == nil && flow.hasDraft)
+        #expect(flow.body.contains("完成日报生成。") && flow.body.contains("## 决策与思考\n\n-"))
+        #expect(flow.generationSources?.groups.first?.titles == [candidate.title])
+        let session = try #require(flow.openWindows[.report])
+        flow.send(.editBody("审阅后的日报", day: flow.selectedDay, session: session, revision: flow.reportEditRevision))
+        #expect(flow.body == "审阅后的日报")
     }
 
     @Test func aChangedConfigurationCannotBecomeActiveBeforeItCancelsTheRunningGeneration() async throws {

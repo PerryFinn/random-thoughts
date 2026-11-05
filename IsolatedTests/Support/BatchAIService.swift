@@ -4,9 +4,9 @@ import Foundation
 actor BatchAIService {
     enum Mode: String, Sendable {
         case compact, dense, missingCoverage, duplicateCoverage, invalidReference, wrongTurn
-        case partialCompletion, numericTurn, schemaCompletion, denseSchemaCompletion, schemaAssociation
+        case partialCompletion, numericTurn
         case oversized, malformed, duplicateFields, eraseOnMerge, unreduced, noRelevant, privateSummary
-        case emptyReference, duplicateReference, emptyTurns, duplicateTurns, emptySummary, wrongRelevance, omitParentOnMerge
+        case emptyReference, duplicateReference, emptyTurns, duplicateTurns, emptySummary, wrongRelevance
     }
     private(set) var requests: [AIRequest] = []
     private(set) var cancelled = 0
@@ -84,7 +84,7 @@ actor BatchAIService {
                 }
             }
             let visible = input["visibleBudget"] as! Int
-            let padded = [.dense, .denseSchemaCompletion, .eraseOnMerge, .unreduced, .omitParentOnMerge].contains(mode)
+            let padded = [.dense, .eraseOnMerge, .unreduced].contains(mode)
             let compactFirstGroup = mode == .unreduced && !isMerge && (ids.first ?? 0) <= 3
             let expand = padded && !compactFirstGroup && (!isMerge || mode == .unreduced)
             var summary = expand ? String(repeating: " factual", count: max(1, visible - 220)) : "合成进展，整轮结果尚待全部片段整合。"
@@ -93,7 +93,6 @@ actor BatchAIService {
             if mode == .invalidReference { references = [-999] }
             if mode == .emptyReference { references = [] }
             if mode == .duplicateReference { references += references.prefix(1) }
-            if mode == .omitParentOnMerge && isMerge { references = Array(references.dropFirst()) }
             if mode == .wrongTurn { turns = ["999/999"] }
             if mode == .emptyTurns { turns = [] }
             if mode == .emptySummary { summary = " \n\t" }
@@ -104,26 +103,7 @@ actor BatchAIService {
             if mode == .oversized { return String(repeating: " TOO_LARGE", count: visible * 2) }
             if mode == .duplicateFields { return "{\"covered\":[],\"covered\":[],\"groups\":[],\"noRelevantContent\":true}" }
             let erased = mode == .eraseOnMerge && isMerge || mode == .noRelevant
-            let schema = try request.schema.map { try JSONSerialization.jsonObject(with: Data($0.utf8)) as! [String: Any] }
-            let rootProperties = schema?["properties"] as? [String: Any]
-            let groupArray = rootProperties?["groups"] as? [String: Any]
-            let groupObject = groupArray?["items"] as? [String: Any]
-            let groupProperties = groupObject?["properties"] as? [String: Any]
-            let factArray = groupProperties?["facts"] as? [String: Any]
-            let factObject = factArray?["items"] as? [String: Any]
-            let properties = factObject?["properties"] as? [String: Any]
-            let statuses = (groupProperties?["status"] as? [String: Any])?["enum"] as? [String] ?? []
-            let turnItems = (properties?["turns"] as? [String: Any])?["items"] as? [String: Any]
-            if mode == .schemaAssociation {
-                let numeric = Set(references.map(String.init))
-                if let pattern = turnItems?["pattern"] as? String {
-                    guard turns.allSatisfy({ $0.range(of: pattern, options: .regularExpression)?.lowerBound == $0.startIndex }) else {
-                        throw AIRequestError.invalidResponse
-                    }
-                    if numeric.allSatisfy({ $0.range(of: pattern, options: .regularExpression) != nil }) { turns = numeric }
-                } else { turns = numeric }
-            }
-            let confirmed = mode == .partialCompletion || [.schemaCompletion, .denseSchemaCompletion].contains(mode) && statuses.contains("confirmed")
+            let confirmed = mode == .partialCompletion
             let turnList = turns.sorted() + (mode == .duplicateTurns ? Array(turns.sorted().prefix(1)) : [])
             let groups: [[String: Any]] = erased ? [] : [["references": references,
                 "status": confirmed ? "confirmed" : "uncertain", "facts": [["turns": turnList, "summary": summary]]]]
