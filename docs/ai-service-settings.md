@@ -6,6 +6,8 @@
 
 界面和主要业务测试共用 `DailyReportFlow.send`。Chat Completions、Responses、Messages 各保留唯一隔离配置，当前 AI 服务配置独立且可为空。每次只保留一个类型的未提交编辑；切类型、切页、关闭设置或退出统一提供取消、放弃、保存并继续。退出面板同时列出全部日报草稿。失败保留完整旧值、编辑输入及原页；提交期间冻结编辑与结束动作，旧窗口／编辑代次／确认无效。即使没有未保存输入，离开 AI 页也结束该页的编辑代次并撤销待定确认；往返该页不能让旧删除确认或编辑回调重新生效。
 
+同一编辑代次内，连续输入和切换字段均累积到当前配置，不能因前一次输入而拒绝后续字段回调。保存成功、撤销、切类型或离页后，旧编辑回调才失效；保存失败仍保留本次输入。
+
 端点初始为空，仅 placeholder 提供完整示例。只 trim 两端空白，保留完整路径、query、大小写与尾斜杠；非空地址须为有 host、无 userinfo／fragment 的绝对 HTTP(S) URL。HTTP 显著标为明文。模型手填，不拉清单。允许端点、模型和凭据未填，非空格式／范围错误持续定位字段并阻止保存。
 
 默认值分别存储：Chat Completions 温度 0–2、`reasoning_effort`；Responses 温度 0–2、`reasoning.effort`；两者 effort 为未设置或 none/minimal/low/medium/high/xhigh/max。Messages 温度 0–1，thinking 为端点默认／关闭／adaptive，仅 adaptive 可选 `output_config.effort`（未设置或 low/medium/high/xhigh/max）。未设置与显式 0／none 不合并，不增加跨协议公共生成参数。C／O 为正整数且 C>O，默认 65,536／16,384；并发默认 3、范围 1–8，必要预算字段不得为空。这些控制不属于生成偏好。

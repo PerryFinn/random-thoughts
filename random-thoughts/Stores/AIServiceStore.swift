@@ -75,7 +75,7 @@ final class AIServiceStore {
     func setEdit(_ edit: AIServiceEdit) {
         hideCredential()
         self.edit = edit
-        editRevision += 1
+        // Continuous field callbacks belong to the same edit session until select/revert.
         notice = nil
     }
     func select(_ service: AIServiceType) {

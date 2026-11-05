@@ -4,6 +4,52 @@ import Testing
 
 @MainActor
 struct AIServiceSettingsTests {
+    @Test(arguments: AIServiceType.allCases)
+    func continuousFieldCallbacksPreserveTheWholeConfigurationUntilSaved(_ service: AIServiceType) async throws {
+        let environment = ReportFlowTestEnvironment()
+        let flow = try await prepareAISettings(environment)
+        flow.send(.selectAIServiceType(service))
+        let session = try #require(flow.openWindows[.settings])
+        let revision = flow.aiServiceEditRevision
+
+        // Native fields retain their bindings while typing and moving between fields.
+        func update(_ change: (inout AIServiceEdit) -> Void) {
+            var edit = flow.aiServiceEdit
+            change(&edit)
+            flow.send(.editAIService(edit, session: session, revision: revision))
+            #expect(flow.aiServiceEdit == edit)
+        }
+
+        update { $0.configuration.endpoint = "https://example.invalid/" }
+        update { $0.configuration.endpoint += "generation" }
+        update { $0.configuration.model = "synthetic-model" }
+        update { $0.temperature = "0.5" }
+        update { $0.totalBudget = "32768" }
+        update { $0.outputLimit = "8192" }
+        update { $0.concurrency = "2" }
+        update { $0.newCredential = "SYNTHETIC_FORM_KEY" }
+        flow.send(.saveAIService)
+        await flow.waitForStorage()
+
+        let reopened = try await prepareAISettings(environment)
+        reopened.send(.selectAIServiceType(service))
+        let saved = reopened.savedAIService
+        #expect(saved.configuration.endpoint == "https://example.invalid/generation")
+        #expect(saved.configuration.model == "synthetic-model")
+        #expect(saved.configuration.defaults.temperature == 0.5)
+        #expect(saved.configuration.totalBudget == 32768)
+        #expect(saved.configuration.outputLimit == 8192)
+        #expect(saved.configuration.concurrency == 2)
+        #expect(reopened.aiCredentialStatus == .readable)
+        #expect(!reopened.hasAIServiceEdits)
+
+        var lateEdit = flow.aiServiceEdit
+        lateEdit.configuration.model = "obsolete-callback"
+        flow.send(.editAIService(lateEdit, session: session, revision: revision))
+        #expect(flow.aiServiceEdit.configuration.model == "synthetic-model")
+        #expect(!flow.hasAIServiceEdits)
+    }
+
     @Test(arguments: ["leave", "save"])
     func unicodeEquivalentModelIdentifiersRemainDistinctEditsAndRequireNewValidation(_ action: String) async throws {
         let environment = ReportFlowTestEnvironment()
