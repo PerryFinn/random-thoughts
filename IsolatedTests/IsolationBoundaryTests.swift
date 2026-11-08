@@ -18,7 +18,7 @@ struct IsolationBoundaryTests {
 
     @Test func deniesReadingProductionUserDirectories() throws {
         let home = try #require(ProcessInfo.processInfo.environment["RANDOM_THOUGHTS_PROTECTED_HOME"])
-        let descriptor = open(home + "/.codex", O_RDONLY | O_DIRECTORY)
+        let descriptor = open(home + "/Library", O_RDONLY | O_DIRECTORY)
         let error = errno
         if descriptor >= 0 { close(descriptor) }
 
@@ -66,13 +66,13 @@ struct IsolationBoundaryTests {
         let second = try IsolatedTestEnvironment()
         defer { second.close() }
 
+        let marker = "isolation-marker.txt"
         first.defaults.set("synthetic-only", forKey: "isolationMarker")
-        try Data("synthetic-storage".utf8).write(to: first.databaseURL)
+        try Data("synthetic-storage".utf8).write(to: first.directory.appendingPathComponent(marker))
 
-        #expect(first.databaseURL != second.databaseURL)
-        #expect(first.credentialKey.count == 32)
+        #expect(first.directory != second.directory)
         #expect(second.defaults.string(forKey: "isolationMarker") == nil)
-        #expect(!FileManager.default.fileExists(atPath: second.databaseURL.path))
+        #expect(!FileManager.default.fileExists(atPath: second.directory.appendingPathComponent(marker).path))
         let directory = first.directory
         first.close()
         #expect(!FileManager.default.fileExists(atPath: directory.path))

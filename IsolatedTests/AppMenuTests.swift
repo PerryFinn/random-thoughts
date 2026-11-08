@@ -1,45 +1,44 @@
 import AppKit
-import Foundation
 import Testing
 @testable import random_thoughts
 
 @MainActor
 struct AppMenuTests {
-    @Test func menuOffersSpecifiedShortcutsAndOnlyMinimizesTheReport() throws {
-        let flow = DailyReportFlow(
-            storage: ControlledReportStorage(),
-            aiCredentials: AIServiceCredentialCipher(key: Data(repeating: 0x21, count: 32)),
-            aiAccess: ControlledAIService(), reportTokenizer: OfflineReportTokenizer(), codexSourceAccess: ControlledCodexSource(),
-            now: { Date(timeIntervalSince1970: 1_000) },
-            timeZone: TimeZone(secondsFromGMT: 0)!,
-            performWindowEffect: { _ in },
-            performContextEffect: { _ in },
-            recordWindowMode: { _ in },
-            recordCodexCheck: { _ in },
-            recordSessionScan: { _ in },
-            recordAIStorage: { _ in },
-            recordAIValidation: { _ in }, recordGeneration: { _ in }, redactCredentials: { $0 },
-            copyText: { _ in }
+    @Test func menuOffersSettingsAndQuitAndClosesOnlyTheKeySettingsWindow() throws {
+        var didShowSettings = false
+        var settingsIsKey = true
+        let commands = AppMenuCommands(
+            showSettings: { didShowSettings = true },
+            isSettingsKeyWindow: { settingsIsKey }
         )
-        var keyWindow: AppWindowKind? = .settings
-        let commands = AppMenuCommands(flow: flow, keyWindowKind: { keyWindow })
         let menu = commands.makeMainMenu()
-        let items = menu.items.flatMap { $0.submenu?.items ?? [] }
-        for key in ["1", ",", "w", "m", "q"] {
+        let application = try #require(menu.item(withTitle: "随想")?.submenu)
+        let window = try #require(menu.item(withTitle: "窗口")?.submenu)
+        #expect(application.items.map(\.keyEquivalent).filter { !$0.isEmpty }.sorted() == [",", "h", "h", "q"])
+        #expect(window.items.map(\.keyEquivalent) == ["w"])
+
+        let items = application.items + window.items
+        for key in [",", "w", "q"] {
             let item = try #require(items.first { $0.keyEquivalent == key })
             #expect(item.keyEquivalentModifierMask == .command)
             #expect(item.target === commands)
         }
-        #expect(!items.contains { $0.keyEquivalent == "n" })
-        let minimize = try #require(items.first { $0.keyEquivalent == "m" })
         let close = try #require(items.first { $0.keyEquivalent == "w" })
-        #expect(!commands.validateMenuItem(minimize))
         #expect(commands.validateMenuItem(close))
 
-        keyWindow = .report
-        #expect(commands.validateMenuItem(minimize))
-        keyWindow = nil
-        #expect(!commands.validateMenuItem(minimize))
+        settingsIsKey = false
         #expect(!commands.validateMenuItem(close))
+
+        let settingsIndex = try #require(application.items.firstIndex { $0.keyEquivalent == "," })
+        // The hostless runner needs an AppKit application for menu action dispatch.
+        _ = NSApplication.shared
+        application.performActionForItem(at: settingsIndex)
+        #expect(didShowSettings)
+    }
+
+    @Test func settingsOffersModelMonitoringAndBluetoothUnlock() {
+        #expect(SettingsRoute.allCases == [.intelligence, .proximityUnlock])
+        #expect(SettingsRoute.allCases.map(\.title) == ["模型监控", "蓝牙解锁"])
+        #expect(SettingsView.Selection().route == .intelligence)
     }
 }

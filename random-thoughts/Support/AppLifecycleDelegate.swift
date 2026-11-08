@@ -4,10 +4,8 @@ import AppKit
 final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
     let store: IntelligenceStore
     let proximityStore: ProximityLockStore
-    let flow: DailyReportFlow
     private let windowCoordinator: AppWindowCoordinator
     private var menuCommands: AppMenuCommands?
-    private var hasFinishedLaunching = false
 
     override init() {
         let store = IntelligenceStore(
@@ -17,51 +15,27 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
             sleep: { try await Task.sleep(for: .seconds($0)) }
         )
         let proximityStore = ProximityLockStore()
-        let windowCoordinator = AppWindowCoordinator(store: store, proximityStore: proximityStore)
-        let telemetry = DailyReportTelemetry(log: DailyReportTelemetry.makeSystemLog())
         self.store = store
         self.proximityStore = proximityStore
-        self.windowCoordinator = windowCoordinator
-        flow = DailyReportFlow(
-            storage: DailyReportDatabase(directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("com.perryfinn.random-thoughts/DailyReports", isDirectory: true)),
-            aiCredentials: AIServiceCredentialCipher.bundled(),
-            aiAccess: AIServiceClient(transport: .production()),
-            reportTokenizer: OfflineReportTokenizer(), codexSourceAccess: CodexDataSourceReader(
-                homeDirectory: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment,
-                homebrewDirectories: [URL(fileURLWithPath: "/opt/homebrew/bin"), URL(fileURLWithPath: "/usr/local/bin")],
-                scanLockDirectory: FileManager.default.temporaryDirectory.appendingPathComponent("com.perryfinn.random-thoughts/CodexScanLocks")
-            ),
-            now: { Date() },
-            timeZone: .current,
-            performWindowEffect: { windowCoordinator.perform($0) },
-            performContextEffect: { _ in },
-            recordWindowMode: { telemetry.windowModeChanged($0) },
-            recordCodexCheck: { telemetry.codexCheckFinished($0) },
-            recordSessionScan: { telemetry.sessionScanFinished($0) },
-            recordAIStorage: { telemetry.storageFinished($0) },
-            recordAIValidation: { telemetry.validationFinished($0) },
-            recordGeneration: { telemetry.generationChanged($0) }, redactCredentials: CredentialRedaction.redact,
-            copyText: { text in
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-            }
-        )
+        windowCoordinator = AppWindowCoordinator(store: store, proximityStore: proximityStore)
         super.init()
-        windowCoordinator.flow = flow
+    }
+
+    func showSettings() {
+        windowCoordinator.showSettings()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let reason = AppLaunchReasonDetector.reason(for: NSAppleEventManager.shared().currentAppleEvent)
-        let commands = AppMenuCommands(flow: flow, keyWindowKind: { [windowCoordinator] in
-            windowCoordinator.keyWindowKind
-        })
+        let app = NSApplication.shared
+        let commands = AppMenuCommands(
+            showSettings: windowCoordinator.showSettings,
+            isSettingsKeyWindow: { [windowCoordinator] in windowCoordinator.isSettingsKeyWindow }
+        )
         menuCommands = commands
         let menu = commands.makeMainMenu()
-        NSApplication.shared.mainMenu = menu
-        NSApplication.shared.windowsMenu = menu.items.last?.submenu
-        flow.send(.launch(reason))
-        hasFinishedLaunching = true
+        app.mainMenu = menu
+        app.windowsMenu = menu.items.last?.submenu
+        app.setActivationPolicy(.accessory)
         store.startUpdating()
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
             proximityStore.start()
@@ -69,17 +43,11 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if hasFinishedLaunching { flow.send(.reactivate) }
+        windowCoordinator.reopenSettingsIfOpen()
         return false
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
-    }
-
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if flow.canTerminate { return .terminateNow }
-        flow.send(.quit)
-        return .terminateCancel
     }
 }

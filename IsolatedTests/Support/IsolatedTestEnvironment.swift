@@ -4,8 +4,6 @@ import Testing
 @MainActor
 final class IsolatedTestEnvironment {
     let directory: URL
-    let databaseURL: URL
-    let credentialKey = Data(repeating: 0x21, count: 32)
     let defaults: UserDefaults
     let clock = ControlledClock()
     let transport = SyntheticTransport()
@@ -21,7 +19,6 @@ final class IsolatedTestEnvironment {
         }
         directory = URL(fileURLWithPath: root, isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        databaseURL = directory.appendingPathComponent("reports.sqlite")
         self.defaults = defaults
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }

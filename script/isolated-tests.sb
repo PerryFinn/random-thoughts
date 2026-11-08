@@ -1,19 +1,9 @@
 (version 1)
 (allow default)
 
-; Only the hostless runner and dedicated synthetic SQLite / stdio probes can execute.
-(deny process-exec
-    (require-all
-        (require-not (literal (param "TEST_RUNNER")))
-        (require-not (literal (param "STORAGE_PROBE")))
-        (require-not (literal (param "CODEX_PROBE")))))
+; Only the hostless test runner can execute.
+(deny process-exec (require-not (literal (param "TEST_RUNNER"))))
 (deny network*)
-(if (string=? (param "ALLOW_LOOPBACK") "1")
-    (begin
-        (allow network-inbound (local ip (param "CHAT_ENDPOINT")))
-        (allow network-outbound
-            (remote ip (param "CHAT_ENDPOINT"))
-            (local ip (param "CHAT_ENDPOINT")))))
 (deny mach-lookup (global-name-regex #".*[Bb]luetooth.*"))
 (deny mach-lookup (global-name "com.apple.cfprefsd.agent"))
 
@@ -22,6 +12,4 @@
     (require-all
         (subpath (param "USER_HOME"))
         (require-not (subpath (param "WORKSPACE")))))
-(deny file-write* (require-all
-    (require-not (subpath (param "TEST_ROOT")))
-    (require-not (literal "/dev/null"))))
+(deny file-write* (require-not (subpath (param "TEST_ROOT"))))

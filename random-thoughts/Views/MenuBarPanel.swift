@@ -6,18 +6,18 @@ struct MenuBarPanel: View {
     static let panelWidth: CGFloat = 568
 
     let store: IntelligenceStore
-    let flow: DailyReportFlow
+    let showSettings: () -> Void
     let proximityStore: ProximityLockStore?
     @State private var selectedPointID: IntelligencePoint.ID?
 
     init(
         store: IntelligenceStore,
-        flow: DailyReportFlow,
+        showSettings: @escaping () -> Void,
         selectedPointID: IntelligencePoint.ID? = nil,
         proximityStore: ProximityLockStore? = nil
     ) {
         self.store = store
-        self.flow = flow
+        self.showSettings = showSettings
         self.proximityStore = proximityStore
         _selectedPointID = State(initialValue: selectedPointID)
     }
@@ -159,10 +159,8 @@ struct MenuBarPanel: View {
                 Text(store.errorMessage ?? "暂时没有模型数据")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                Button("打开设置") {
-                    flow.send(.open(.settings))
-                }
-                .pointerStyle(.link)
+                Button("打开设置", action: showSettings)
+                    .pointerStyle(.link)
             }
         }
         .frame(maxWidth: .infinity, minHeight: 150)
@@ -225,16 +223,8 @@ struct MenuBarPanel: View {
                 Spacer()
 
                 Button {
-                    flow.send(.open(.report))
-                } label: {
-                    Label("日报", systemImage: "doc.text")
-                }
-                .buttonStyle(.borderless)
-                .pointerStyle(.link)
-
-                Button {
                     AppTelemetry.menuBar.info("Settings command selected")
-                    flow.send(.open(.settings))
+                    showSettings()
                 } label: {
                     Label("设置", systemImage: "gearshape")
                 }
@@ -243,7 +233,7 @@ struct MenuBarPanel: View {
 
                 Button {
                     AppTelemetry.menuBar.info("Quit command selected")
-                    flow.send(.quit)
+                    NSApplication.shared.terminate(nil)
                 } label: {
                     Label("退出", systemImage: "power")
                 }

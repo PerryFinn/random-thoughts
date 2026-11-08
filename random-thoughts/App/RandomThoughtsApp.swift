@@ -6,7 +6,11 @@ struct RandomThoughtsApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarPanel(store: appDelegate.store, flow: appDelegate.flow, proximityStore: appDelegate.proximityStore)
+            MenuBarPanel(
+                store: appDelegate.store,
+                showSettings: appDelegate.showSettings,
+                proximityStore: appDelegate.proximityStore
+            )
         } label: {
             Image(
                 systemName: appDelegate.proximityStore.latestRSSI == nil

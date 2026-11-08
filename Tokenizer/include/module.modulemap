@@ -1,4 +1,0 @@
-module ReportTokenizerC {
-    header "report_tokenizer.h"
-    export *
-}

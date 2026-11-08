@@ -2,19 +2,18 @@ import AppKit
 
 @MainActor
 final class AppMenuCommands: NSObject, NSMenuItemValidation {
-    private let flow: DailyReportFlow
-    private let keyWindowKind: () -> AppWindowKind?
+    private let showSettings: () -> Void
+    private let isSettingsKeyWindow: () -> Bool
 
-    init(flow: DailyReportFlow, keyWindowKind: @escaping () -> AppWindowKind?) {
-        self.flow = flow
-        self.keyWindowKind = keyWindowKind
+    init(showSettings: @escaping () -> Void, isSettingsKeyWindow: @escaping () -> Bool) {
+        self.showSettings = showSettings
+        self.isSettingsKeyWindow = isSettingsKeyWindow
     }
 
     func makeMainMenu() -> NSMenu {
         let menu = NSMenu()
         let application = NSMenu(title: "随想")
-        application.addItem(item("显示工作日报", action: #selector(showReport), key: "1"))
-        application.addItem(item("设置…", action: #selector(showSettings), key: ","))
+        application.addItem(item("设置…", action: #selector(openSettings), key: ","))
         application.addItem(.separator())
         application.addItem(item("隐藏随想", action: #selector(hide), key: "h"))
         let hideOthers = NSMenuItem(title: "隐藏其他", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
@@ -39,14 +38,12 @@ final class AppMenuCommands: NSObject, NSMenuItemValidation {
 
         let window = NSMenu(title: "窗口")
         window.addItem(item("关闭窗口", action: #selector(closeWindow), key: "w"))
-        window.addItem(item("最小化日报", action: #selector(minimizeReport), key: "m"))
         add(window, to: menu)
         return menu
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if menuItem.action == #selector(minimizeReport) { return keyWindowKind() == .report }
-        if menuItem.action == #selector(closeWindow) { return keyWindowKind() != nil }
+        if menuItem.action == #selector(closeWindow) { return isSettingsKeyWindow() }
         return true
     }
 
@@ -63,10 +60,14 @@ final class AppMenuCommands: NSObject, NSMenuItemValidation {
         menu.addItem(item)
     }
 
-    @objc private func showReport() { flow.send(.open(.report)) }
-    @objc private func showSettings() { flow.send(.open(.settings)) }
-    @objc private func closeWindow() { flow.send(.closeKeyWindow) }
-    @objc private func minimizeReport() { flow.send(.minimizeReport) }
-    @objc private func hide() { flow.send(.hide) }
-    @objc private func quit() { flow.send(.quit) }
+    @objc private func openSettings() { showSettings() }
+
+    @objc private func closeWindow() {
+        if isSettingsKeyWindow() {
+            NSApplication.shared.keyWindow?.performClose(nil)
+        }
+    }
+
+    @objc private func hide() { NSApplication.shared.hide(nil) }
+    @objc private func quit() { NSApplication.shared.terminate(nil) }
 }

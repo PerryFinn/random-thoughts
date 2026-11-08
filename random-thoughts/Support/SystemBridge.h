@@ -3,7 +3,6 @@
 
 #include <stdbool.h>
 #include <dispatch/dispatch.h>
-#include "../../Tokenizer/include/report_tokenizer.h"
 
 typedef enum {
     RTMediaCommandPlay = 0,

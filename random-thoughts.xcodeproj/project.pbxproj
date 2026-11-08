@@ -6,10 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		A220000000000000000000001 /* CocoaLumberjack in Frameworks */ = {isa = PBXBuildFile; productRef = A220000000000000000000003 /* CocoaLumberjack */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXContainerItemProxy section */
 		AF8952F63015C65500167B5A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -56,7 +52,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A220000000000000000000001 /* CocoaLumberjack in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -104,7 +99,6 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = AF8953093015C65500167B5A /* Build configuration list for PBXNativeTarget "random-thoughts" */;
 			buildPhases = (
-				A280000000000000000000001 /* Build offline tokenizer */,
 				AF8952E43015C65400167B5A /* Sources */,
 				AF8952E53015C65400167B5A /* Frameworks */,
 				AF8952E63015C65400167B5A /* Resources */,
@@ -118,7 +112,6 @@
 			);
 			name = "random-thoughts";
 			packageProductDependencies = (
-				A220000000000000000000003 /* CocoaLumberjack */,
 			);
 			productName = "random-thoughts";
 			productReference = AF8952E83015C65400167B5A /* random-thoughts.app */;
@@ -202,9 +195,6 @@
 			);
 			mainGroup = AF8952DF3015C65300167B5A;
 			minimizedProjectReferenceProxies = 1;
-			packageReferences = (
-				A220000000000000000000002 /* XCRemoteSwiftPackageReference "CocoaLumberjack" */,
-			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AF8952E93015C65400167B5A /* Products */;
 			projectDirPath = "";
@@ -240,25 +230,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		A280000000000000000000001 /* Build offline tokenizer */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "Build offline tokenizer";
-			outputPaths = (
-				"$(SRCROOT)/.build/tokenizer/release/libreport_tokenizer.a",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/bash;
-			shellScript = "\"$SRCROOT/script/build-tokenizer.sh\"";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		AF8952E43015C65400167B5A /* Sources */ = {
@@ -424,7 +395,6 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Config/Info.plist;
@@ -441,14 +411,9 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				LIBRARY_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(SRCROOT)/.build/tokenizer/release",
-				);
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
-					"-lreport_tokenizer",
 					"$(inherited)",
 					"-framework",
 					login,
@@ -488,7 +453,6 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Config/Info.plist;
@@ -505,14 +469,9 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				LIBRARY_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(SRCROOT)/.build/tokenizer/release",
-				);
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
-					"-lreport_tokenizer",
 					"$(inherited)",
 					"-framework",
 					login,
@@ -682,25 +641,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		A220000000000000000000002 /* XCRemoteSwiftPackageReference "CocoaLumberjack" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/CocoaLumberjack/CocoaLumberjack.git";
-			requirement = {
-				kind = exactVersion;
-				version = 3.10.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		A220000000000000000000003 /* CocoaLumberjack */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A220000000000000000000002 /* XCRemoteSwiftPackageReference "CocoaLumberjack" */;
-			productName = CocoaLumberjack;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AF8952E03015C65400167B5A /* Project object */;
 }
