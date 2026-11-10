@@ -1,24 +1,14 @@
-import SwiftUI
+import AppKit
 
 @main
-struct RandomThoughtsApp: App {
-    @NSApplicationDelegateAdaptor(AppLifecycleDelegate.self) private var appDelegate
-
-    var body: some Scene {
-        MenuBarExtra {
-            MenuBarPanel(
-                store: appDelegate.store,
-                showSettings: appDelegate.showSettings,
-                proximityStore: appDelegate.proximityStore
-            )
-        } label: {
-            Image(
-                systemName: appDelegate.proximityStore.latestRSSI == nil
-                    ? "brain.head.profile"
-                    : "brain.head.profile.fill"
-            )
-                .accessibilityLabel("随想")
+struct RandomThoughtsApp {
+    @MainActor
+    static func main() {
+        let app = NSApplication.shared
+        let delegate = AppLifecycleDelegate()
+        app.delegate = delegate
+        withExtendedLifetime(delegate) {
+            app.run()
         }
-        .menuBarExtraStyle(.window)
     }
 }

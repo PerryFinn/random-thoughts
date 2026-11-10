@@ -2,10 +2,11 @@ import AppKit
 
 @MainActor
 final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
-    let store: IntelligenceStore
-    let proximityStore: ProximityLockStore
+    private let store: IntelligenceStore
+    private let proximityStore: ProximityLockStore
     private let windowCoordinator: AppWindowCoordinator
     private var menuCommands: AppMenuCommands?
+    private var menuBarStatusItem: MenuBarStatusItem?
 
     override init() {
         let store = IntelligenceStore(
@@ -21,10 +22,6 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
 
-    func showSettings() {
-        windowCoordinator.showSettings()
-    }
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         let app = NSApplication.shared
         let commands = AppMenuCommands(
@@ -36,6 +33,11 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         app.mainMenu = menu
         app.windowsMenu = menu.items.last?.submenu
         app.setActivationPolicy(.accessory)
+        menuBarStatusItem = MenuBarStatusItem(
+            store: store,
+            proximityStore: proximityStore,
+            showSettings: windowCoordinator.showSettings
+        )
         store.startUpdating()
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
             proximityStore.start()

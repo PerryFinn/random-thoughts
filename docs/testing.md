@@ -25,9 +25,11 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 
 执行旧宿主或 UI 测试会启动应用，需要单独授权。实际窗口聚焦、Dock 切换、快捷键和蓝牙交互在启动应用后验收。从菜单栏面板点击「设置」或「打开设置」时，确认面板关闭并显示设置窗口。再次点击菜单栏图标，应能立即打开面板。
 
+验收菜单栏入口时，用 Xcode 调试启动，确认图标出现，点击能打开和关闭面板，控制台没有 `layoutSubtreeIfNeeded` 布局重入警告。
+
 ## 隔离边界
 
-- SwiftPM 的 `random_thoughts` 库直接编译清单列出的生产 Swift 文件。生产入口、应用 Delegate、窗口操作、蓝牙和系统操作适配器由 Xcode 应用目标编译。
+- SwiftPM 的 `random_thoughts` 库直接编译清单列出的生产 Swift 文件。生产入口、应用 Delegate、菜单栏状态项、窗口操作、蓝牙和系统操作适配器由 Xcode 应用目标编译。
 - 模型监控使用注入的 URLSession、UserDefaults、时钟和调度器。隔离测试通过合成传输提供响应，通过调度屏障推进固定时钟。
 - 每次运行创建临时根目录，各测试使用独立目录和随机 UserDefaults suite。测试结束清理各自的目录和 suite，脚本退出清理整次运行目录。
 - 沙盒只允许测试加载器执行，阻止网络和蓝牙服务访问。用户主目录中的读取限于仓库，测试写入限于临时根目录。
