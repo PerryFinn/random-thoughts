@@ -8,6 +8,7 @@ struct MenuBarPanel: View {
     let store: IntelligenceStore
     let showSettings: () -> Void
     let proximityStore: ProximityLockStore?
+    @Environment(\.dismiss) private var dismiss
     @State private var selectedPointID: IntelligencePoint.ID?
 
     init(
@@ -159,7 +160,7 @@ struct MenuBarPanel: View {
                 Text(store.errorMessage ?? "暂时没有模型数据")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                Button("打开设置", action: showSettings)
+                Button("打开设置", action: openSettings)
                     .pointerStyle(.link)
             }
         }
@@ -222,10 +223,7 @@ struct MenuBarPanel: View {
 
                 Spacer()
 
-                Button {
-                    AppTelemetry.menuBar.info("Settings command selected")
-                    showSettings()
-                } label: {
+                Button(action: openSettings) {
                     Label("设置", systemImage: "gearshape")
                 }
                 .buttonStyle(.borderless)
@@ -241,6 +239,14 @@ struct MenuBarPanel: View {
                 .pointerStyle(.link)
             }
         }
+    }
+
+    private func openSettings() {
+        AppTelemetry.menuBar.info("Settings command selected")
+        AppMenuCommands.openSettingsFromMenuBarPanel(
+            dismissPanel: dismiss.callAsFunction,
+            showSettings: showSettings
+        )
     }
 
     private var statusText: String {

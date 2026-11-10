@@ -23,7 +23,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
   -derivedDataPath .build/DerivedData CODE_SIGNING_ALLOWED=NO build-for-testing
 ```
 
-执行旧宿主或 UI 测试会启动应用，需要单独授权。实际窗口聚焦、Dock 切换、快捷键和蓝牙交互在启动应用后验收。
+执行旧宿主或 UI 测试会启动应用，需要单独授权。实际窗口聚焦、Dock 切换、快捷键和蓝牙交互在启动应用后验收。从菜单栏面板点击「设置」或「打开设置」时，确认面板关闭并显示设置窗口。再次点击菜单栏图标，应能立即打开面板。
 
 ## 隔离边界
 

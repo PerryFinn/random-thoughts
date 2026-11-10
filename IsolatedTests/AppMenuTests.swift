@@ -36,6 +36,18 @@ struct AppMenuTests {
         #expect(didShowSettings)
     }
 
+    @Test func openingSettingsFromMenuBarPanelDismissesThePanelFirst() {
+        var panelIsVisible = true
+        var panelWasVisibleWhenSettingsOpened: Bool?
+
+        AppMenuCommands.openSettingsFromMenuBarPanel(
+            dismissPanel: { panelIsVisible = false },
+            showSettings: { panelWasVisibleWhenSettingsOpened = panelIsVisible }
+        )
+
+        #expect(panelWasVisibleWhenSettingsOpened == false)
+    }
+
     @Test func settingsOffersModelMonitoringAndBluetoothUnlock() {
         #expect(SettingsRoute.allCases == [.intelligence, .proximityUnlock])
         #expect(SettingsRoute.allCases.map(\.title) == ["模型监控", "蓝牙解锁"])

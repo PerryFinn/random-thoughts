@@ -10,6 +10,11 @@ final class AppMenuCommands: NSObject, NSMenuItemValidation {
         self.isSettingsKeyWindow = isSettingsKeyWindow
     }
 
+    static func openSettingsFromMenuBarPanel(dismissPanel: () -> Void, showSettings: () -> Void) {
+        dismissPanel()
+        showSettings()
+    }
+
     func makeMainMenu() -> NSMenu {
         let menu = NSMenu()
         let application = NSMenu(title: "随想")
